@@ -1,0 +1,143 @@
+# FastAPI 백엔드 컨벤션
+
+루트 `CLAUDE.md` 를 먼저 읽었다고 가정. 백엔드 작업 시 추가로 적용되는 규칙.
+
+---
+
+## 디렉토리 구조
+
+```
+apps/api/
+├── app/
+│   ├── main.py                  # FastAPI 앱 entry
+│   ├── settings.py              # pydantic-settings (모든 env 변수)
+│   ├── deps.py                  # 공통 의존성 (get_db, get_current_user)
+│   ├── exceptions.py            # 도메인 예외
+│   ├── models/                  # SQLAlchemy 모델 (DB 스키마)
+│   │   ├── base.py
+│   │   ├── video.py
+│   │   └── place.py
+│   ├── schemas/                 # Pydantic 스키마 (DTO)
+│   ├── routers/                 # FastAPI 라우터 (/api/v1/...)
+│   ├── pipeline/                # AI 파이프라인 — 모두 순수 함수
+│   │   ├── types.py             # PlaceCandidate, Transcript, Frame 등
+│   │   ├── cost_guard.py        # 비용 캡 가드
+│   │   ├── download.py          # yt-dlp
+│   │   ├── audio.py             # ffmpeg 오디오 추출
+│   │   ├── transcribe.py        # faster-whisper (B안용)
+│   │   ├── frames.py            # ffmpeg keyframe 추출 (B안용)
+│   │   ├── analyze_video.py     # Gemini 단일 비디오 입력 (A안)
+│   │   ├── analyze_audio.py     # Gemini 텍스트 분석 (B안 인터페이스)
+│   │   ├── analyze_vision.py    # Gemini Vision (B안 인터페이스)
+│   │   ├── resolve.py           # 후보 dedup + Google Places 지오코딩
+│   │   └── orchestrator.py      # 파이프라인 전체 흐름
+│   └── webhooks/                # Supabase Webhook 핸들러
+├── alembic/                     # 마이그레이션
+├── tests/
+│   ├── unit/
+│   ├── integration/
+│   └── fixtures/                # sample.mp4 (5초 더미) 등
+├── pyproject.toml               # ruff, mypy, pytest 설정
+└── Dockerfile
+```
+
+---
+
+## SQLAlchemy 규칙
+
+- **SQLAlchemy 2.0 스타일만**. `DeclarativeBase` + `Mapped[T]` annotation. 1.x 레거시 스타일 금지.
+- **PK는 UUID**: `Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)`.
+- **모든 테이블에 `created_at`, `updated_at`** (`timestamp with timezone`, UTC).
+- **좌표**: GeoAlchemy2 `Geography(POINT, srid=4326)`. **GIST 인덱스 필수**.
+- **FK 컬럼**: 명시적 인덱스 추가.
+- **Enum**: SQLAlchemy `Enum` 대신 Python `enum.StrEnum` + `String` 컬럼. 마이그레이션 호환성 위해.
+- 변경은 **반드시 Alembic 마이그레이션**과 함께. 모델만 바꾸고 마이그레이션 빼먹지 말 것.
+
+---
+
+## Pydantic 규칙
+
+- Pydantic v2 사용.
+- 스키마는 **`Read`, `Create`, `Update` 분리** (예: `PlaceRead`, `PlaceCreate`, `PlaceUpdate`).
+- `Read` 스키마: `model_config = ConfigDict(from_attributes=True)`.
+- 좌표는 API 표면에 **`lat: float, lng: float`**으로 노출 (geom → lat/lng 변환 함수 작성).
+- `datetime`은 UTC, ISO 8601.
+- 컬럼명 ↔ 필드명 매핑: snake_case 통일 (DB도 API도).
+
+---
+
+## AI 파이프라인 규칙
+
+### 함수 시그니처 원칙
+- 모든 파이프라인 함수는 **순수 함수** (DB 의존 X). 입출력은 Pydantic 모델.
+- 파일 의존은 `pathlib.Path`로 명시. 임시파일은 함수 내부에서 `tempfile.TemporaryDirectory`.
+
+### A안 / B안 인터페이스 분리 (중요)
+```python
+# pipeline/types.py
+class PlaceCandidate(BaseModel):
+    name: str
+    category: str | None
+    context_start_sec: int
+    context_end_sec: int
+    confidence: float
+    source_modality: Literal["audio", "vision", "text", "video"]
+    raw_extracted_text: str
+
+# A안 (MVP 구현)
+async def analyze_video(video_path: Path) -> list[PlaceCandidate]: ...
+
+# B안 (인터페이스만 정의, 구현은 v2)
+async def analyze_audio(transcript: Transcript) -> list[PlaceCandidate]: ...
+async def analyze_vision(frames: list[Frame]) -> list[PlaceCandidate]: ...
+```
+나중에 정확도 비교 실험 시 orchestrator만 갈아끼우면 되도록.
+
+### 외부 API 호출
+- `tenacity`로 재시도 데코레이트:
+  - Gemini 429 / 503: exponential backoff, max 3회
+  - 4xx (429 제외): 재시도 X
+  - 5xx: 재시도 OK
+- 호출 전 `cost_guard.check(video_id, estimated_cost)` 필수. 초과 시 `CostLimitExceeded` 예외.
+
+---
+
+## FastAPI 컨벤션
+
+- 라우터 prefix는 **`/api/v1/`**. 버저닝 처음부터.
+- `response_model=...` 로 응답 스키마 명시.
+- 페이지네이션은 **cursor-based** (offset 금지). `limit`, `cursor` 쿼리 파라미터.
+- 에러는 도메인 예외(`PlaceNotFound`, `CostLimitExceeded` 등) → 미들웨어에서 HTTP 응답으로 변환.
+- 모든 엔드포인트에 `tags` 지정.
+- **Webhook 엔드포인트는 Bearer 토큰(서비스 시크릿) 검증 필수**.
+
+---
+
+## 테스트
+
+- 단위 테스트: `pytest` + `pytest-asyncio`. 외부 API는 `respx`로 mock.
+- 통합 테스트: `httpx.AsyncClient` + docker-compose의 test DB.
+- 새 라우터: happy path + 최소 1개 에러 케이스.
+- `tests/fixtures/sample.mp4` (5초, <1MB)를 파이프라인 통합 테스트에 사용.
+- AI 호출 통합 테스트는 별도 마커(`@pytest.mark.live`) — 평소엔 skip, 수동으로만 실행.
+
+---
+
+## 검증
+
+```bash
+make verify  # = ruff check . && ruff format --check . && mypy app && pytest
+```
+
+- 코드 변경 후 반드시 실행.
+- 자동 수정 가능한 건 `ruff format .`, `ruff check --fix .`.
+
+---
+
+## 절대 금지
+
+- 모델 변경 없이 마이그레이션 작성, 또는 그 반대
+- 파이프라인 함수 안에서 DB 직접 접근
+- API 키를 코드에 하드코딩 (반드시 `settings.py` 경유)
+- Webhook 엔드포인트에 시크릿 검증 누락
+- `print()` 로 로깅 (`structlog` 사용)
