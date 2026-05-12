@@ -1,6 +1,6 @@
 # Pind 진행 현황
 
-**Last updated**: 2026-05-13 (초기 작성)
+**Last updated**: 2026-05-13
 
 > 세션 시작 시 이 파일을 먼저 읽고, 종료 시 갱신할 것.
 > Phase별 체크리스트의 완료 항목은 `- [x]`로 표시하고 commit hash를 옆에 적는다.
@@ -28,11 +28,11 @@
 
 ## Phase 0: 부트스트랩
 
-- [ ] 0-1. pnpm workspace 모노레포 초기화 (`apps/`, `packages/`)
-- [ ] 0-2. 루트 `CLAUDE.md` + 각 디렉토리 `CLAUDE.md` 5개 배치
-- [ ] 0-3. `docker-compose.yml` (Postgres+PostGIS) + `make` 타겟
-- [ ] 0-4. Supabase CLI 로컬 환경 (`supabase init`, `supabase start`)
-- [ ] 0-5. `apps/api` 부트스트랩 (FastAPI + ruff + mypy + pytest + pre-commit)
+- [x] 0-1. pnpm workspace 모노레포 초기화 (`apps/`, `packages/`) — package.json, pnpm-workspace.yaml, packages/{shared-types,ui}, tsconfig.json, .gitignore
+- [x] 0-2. 루트 `CLAUDE.md` + 각 디렉토리 `CLAUDE.md` 5개 배치 — 이미 완비
+- [x] 0-3. `docker-compose.yml` (Postgres+PostGIS 15-3.4) + `Makefile` (verify/gen-types/migrate/dev/test) — ⚠️ Docker Desktop 미설치, 실행은 설치 후
+- [x] 0-4. Supabase CLI 로컬 환경 — `supabase init` 완료 (config.toml, migrations/, seed.sql) — ⚠️ `supabase start`는 Docker 필요
+- [x] 0-5. `apps/api` 부트스트랩 — pyproject.toml, app/{main,settings,exceptions,models/base}.py, alembic 환경, .pre-commit-config.yaml, .env.example, ruff OK
 - [ ] 0-6. `apps/web` 부트스트랩 (`pnpm create next-app` + Tailwind + shadcn/ui init)
 - [ ] 0-7. `apps/extension` 부트스트랩 (`pnpm create plasmo`)
 - [ ] 0-8. `packages/ui`, `packages/shared-types` 부트스트랩
@@ -59,7 +59,7 @@
 - [ ] 2-2. 빈 지도 컴포넌트 (Leaflet, `dynamic` import로 SSR 회피)
 - [ ] 2-2. 더미 마커 3개 표시 → mock API 호출로 교체
 
-## Phase 3: AI 파이프라인 (Backend, 가장 큰 단계)
+## Phase 3: AI 파이프라인 (Backend, 가장 큰 단계) bkit이 만든 문서 추가
 
 - [ ] 3-1. `pipeline/types.py` (PlaceCandidate, Transcript, Frame 등)
 - [ ] 3-1. `pipeline/cost_guard.py` (비용 캡)
@@ -99,11 +99,12 @@
 
 ## 진행 중
 
-(없음 — Phase 0 시작 전)
+Phase 0 진행 중 (0-1 완료)
 
 ## 다음 작업
 
-**Phase 0-1**: 모노레포 디렉토리 구조 + `package.json` workspace 설정부터.
+**Phase 0-2**: 각 디렉토리 `CLAUDE.md` 확인/보강 (루트는 완료, 나머지 4개 점검)
+**Phase 0-3**: `docker-compose.yml` (Postgres+PostGIS) + `make` 타겟
 
 ---
 
