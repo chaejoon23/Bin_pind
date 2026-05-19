@@ -1,6 +1,6 @@
 # Pind 진행 현황
 
-**Last updated**: 2026-05-13
+**Last updated**: 2026-05-20
 
 > 세션 시작 시 이 파일을 먼저 읽고, 종료 시 갱신할 것.
 > Phase별 체크리스트의 완료 항목은 `- [x]`로 표시하고 commit hash를 옆에 적는다.
@@ -23,16 +23,23 @@
 | 2026-05-13 | DB: PostgreSQL 15 + PostGIS 3 (Supabase). SRID 4326 | |
 | 2026-05-13 | 인증: Supabase Auth (JWT). FastAPI는 JWKS 검증 | |
 | 2026-05-13 | 타입 동기화: Pydantic → OpenAPI → `openapi-typescript` 자동 생성 | 손으로 작성 금지 |
+| 2026-05-20 | DB 연결: Docker 없이 Supabase Cloud Session Pooler 직접 사용 | IPv6 직접 연결 대신 Session Pooler(:5432) — Alembic/FastAPI 모두 동일 |
+| 2026-05-20 | Gemini 모델: `gemini-3.1-flash-lite` 고정 | |
 
 ---
 
 ## Phase 0: 부트스트랩
 
 - [x] 0-1. pnpm workspace 모노레포 초기화 (`apps/`, `packages/`) — package.json, pnpm-workspace.yaml, packages/{shared-types,ui}, tsconfig.json, .gitignore
-- [x] 0-2. 루트 `CLAUDE.md` + 각 디렉토리 `CLAUDE.md` 5개 배치 — 이미 완비
-- [x] 0-3. `docker-compose.yml` (Postgres+PostGIS 15-3.4) + `Makefile` (verify/gen-types/migrate/dev/test) — ⚠️ Docker Desktop 미설치, 실행은 설치 후
-- [x] 0-4. Supabase CLI 로컬 환경 — `supabase init` 완료 (config.toml, migrations/, seed.sql) — ⚠️ `supabase start`는 Docker 필요
-- [x] 0-5. `apps/api` 부트스트랩 — pyproject.toml, app/{main,settings,exceptions,models/base}.py, alembic 환경, .pre-commit-config.yaml, .env.example, ruff OK
+- [x] 0-2. 루트 `CLAUDE.md` + 각 디렉토리 `CLAUDE.md` 5개 배치 — 완비 확인
+- [x] 0-3. `docker-compose.yml` + `Makefile` 작성 완료 — **Docker 불필요 확정**: DB는 Supabase Cloud 직접 연결(Session Pooler :5432)로 대체. docker-compose는 Phase 5 배포 테스트용으로 보존
+- [x] 0-4. Supabase CLI 설정 완료 — `supabase init` + `supabase link` (bin_pind / fqltlhaqmfmnerriellm, Seoul), RLS 마이그레이션 파일 작성 (`supabase/migrations/20260520000001_enable_rls_videos_places.sql`)
+- [x] 0-5. `apps/api` 부트스트랩 완료
+  - pyproject.toml (fastapi, sqlalchemy, alembic, asyncpg, geoalchemy2, google-genai, faster-whisper, yt-dlp, sentence-transformers 등 전체 패키지 설치)
+  - `app/` 뼈대: main.py, settings.py, exceptions.py, models/base.py, deps.py
+  - `alembic/` 환경 구성 (env.py — ConfigParser `%` 이슈 우회, Session Pooler 직접 연결)
+  - pyrightconfig.json (.venv 인식), .pre-commit-config.yaml, .env.example
+  - FastAPI `/health` 기동 확인, `alembic current` DB 연결 확인
 - [ ] 0-6. `apps/web` 부트스트랩 (`pnpm create next-app` + Tailwind + shadcn/ui init)
 - [ ] 0-7. `apps/extension` 부트스트랩 (`pnpm create plasmo`)
 - [ ] 0-8. `packages/ui`, `packages/shared-types` 부트스트랩
@@ -99,12 +106,11 @@
 
 ## 진행 중
 
-Phase 0 진행 중 (0-1 완료)
+Phase 0 진행 중 (0-1 ~ 0-5 완료)
 
 ## 다음 작업
 
-**Phase 0-2**: 각 디렉토리 `CLAUDE.md` 확인/보강 (루트는 완료, 나머지 4개 점검)
-**Phase 0-3**: `docker-compose.yml` (Postgres+PostGIS) + `make` 타겟
+**Phase 0-6**: `apps/web` 부트스트랩 (`pnpm create next-app` + Tailwind + shadcn/ui init)
 
 ---
 

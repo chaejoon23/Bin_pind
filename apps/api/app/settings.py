@@ -4,9 +4,12 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore")
 
-    # Database
-    database_url: str = "postgresql+psycopg2://pind:pind_local@localhost:5433/pind"
-    test_database_url: str = "postgresql+psycopg2://pind:pind_local@localhost:5434/pind_test"
+    # Database — Alembic 마이그레이션용 (Session Mode Pooler, psycopg2 sync)
+    # 직접 연결(5432)은 IPv6 전용이라 일부 환경에서 막힘 → Session Pooler 사용
+    database_url: str = "postgresql://pind:pind_local@localhost:5433/pind"
+
+    # Database — FastAPI 런타임용 (Transaction Mode Pooler, asyncpg)
+    database_pool_url: str = "postgresql://pind:pind_local@localhost:5433/pind"
 
     # Supabase
     supabase_url: str = ""
@@ -17,6 +20,7 @@ class Settings(BaseSettings):
 
     # AI
     gemini_api_key: str = ""
+    gemini_model: str = "gemini-3.1-flash-lite"
     google_places_api_key: str = ""
 
     # Cost caps
