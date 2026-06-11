@@ -28,6 +28,7 @@
 | 2026-06-11 | web 스택: **Next.js 14 + React 18 + Tailwind v3 + shadcn 2.3.0** 고정 | 최신 shadcn(v4)은 Tailwind v4+base-ui 전제라 우리 스택과 충돌 → 2.x(Radix) 사용. 토큰은 tailwind.config.ts(HSL) |
 | 2026-06-11 | shadcn 토큰 oklch→HSL 트리플릿 교체 | shadcn 2.3.0이 oklch를 쓰는데 v3 config는 `hsl(var(--x))`로 감싸 무효화됨 → 정통 zinc HSL 팔레트로 globals.css 재작성 |
 | 2026-06-11 | RootLayout만 Server Component 예외 허용 | `metadata` export 때문. 데이터 패칭/Server Action 없음. 페이지는 모두 `'use client'` |
+| 2026-06-11 | Extension: Plasmo 0.90.5 + React 18 | create-plasmo가 example template을 잡아 package.json 수동 정정. Tailwind는 후속 |
 
 ---
 
@@ -53,7 +54,16 @@
   - `components/`, `hooks/`, `stores/` 디렉토리 배치
   - `pnpm verify`(lint+typecheck) + `next build` 전체 통과
   - ⚠️ 임시조치: `packages/shared-types/src/api.ts` placeholder stub(1-2에서 gen:types가 덮어씀), `@pind/ui` lint는 no-op placeholder(0-8에서 eslint 설정)
-- [ ] 0-7. `apps/extension` 부트스트랩 (`pnpm create plasmo`)
+- [x] 0-7. `apps/extension` 부트스트랩 완료
+  - Plasmo 0.90.5 + React 18 (popup.tsx 진입점, tsconfig는 `plasmo/templates/tsconfig.base` 확장, alias `~*`)
+  - package.json 정정: `@pind/extension` (create-plasmo가 example template "with-popup"+`plasmo: workspace:*`를 잡아 수동 교체)
+  - `lib/{storage,supabase,api}.ts` 스켈레톤: `@plasmohq/storage` 래퍼, chrome.storage 어댑터 supabase 클라이언트(persistSession), web과 동일 api wrapper
+  - `components/`, `hooks/`, `stores/`, `contents/` 디렉토리 배치
+  - env: `PLASMO_PUBLIC_*` (`.env.example` 커밋 / `.env.local` gitignore)
+  - manifest host_permissions: localhost:8000, Supabase. permissions: storage
+  - 인입 .github/workflows(Chrome Web Store submit) 제거 — 모노레포 하위라 미작동, 배포는 Phase 5-2 루트 구성
+  - `.gitignore`에 `*.tsbuildinfo` 추가, `pnpm verify`(typecheck) 통과
+  - ⚠️ `plasmo dev/build`는 네이티브 빌드 스크립트(@swc/core, esbuild, lmdb, sharp) 필요 → 최초 1회 `pnpm approve-builds` 후 사용. Tailwind는 후속 도입(현재 popup 인라인 style)
 - [ ] 0-8. `packages/ui`, `packages/shared-types` 부트스트랩
 - [ ] 0-9. `Makefile` (`verify`, `gen:types`, `dev`, `test`, `migrate`)
 - [ ] 0-10. pre-commit hook (ruff format, eslint --fix, tsc)
@@ -118,11 +128,11 @@
 
 ## 진행 중
 
-Phase 0 진행 중 (0-1 ~ 0-6 완료)
+Phase 0 진행 중 (0-1 ~ 0-7 완료)
 
 ## 다음 작업
 
-**Phase 0-7**: `apps/extension` 부트스트랩 (`pnpm create plasmo` — Plasmo + React + Zustand + Leaflet)
+**Phase 0-8**: `packages/ui`, `packages/shared-types` 부트스트랩 (ui eslint 정식 설정 → no-op placeholder 교체, shared-types gen:types 파이프라인 점검)
 
 ---
 
