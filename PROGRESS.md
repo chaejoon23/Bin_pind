@@ -78,7 +78,12 @@
   - 누락됐던 `test-web` 타깃 추가(placeholder, Phase 2+에서 실제 테스트)
   - `make verify` 녹색화 과정에서 드러난 기존 `alembic/env.py` import 정렬(ruff I001) 수정
   - `make verify` 전체 통과 검증 완료
-- [ ] 0-10. pre-commit hook (ruff format, eslint --fix, tsc)
+- [x] 0-10. pre-commit hook 완료
+  - `.pre-commit-config.yaml` 재설계: isolated env(버전 핀고정) → `repo: local` + `language: system`으로 전환 → `make verify`와 **동일 버전**(apps/api/.venv ruff/mypy, pnpm) 호출, 버전 스큐 제거
+  - 훅: 위생(merge-conflict/yaml/EOF/trailing) + api(ruff --fix, ruff-format, mypy) + js(eslint·next lint, tsc typecheck)
+  - `pre-commit install` 완료(.git/hooks/pre-commit), `run --all-files` 전부 통과 (EOF: components.json 개행 보정)
+
+> **Phase 0 부트스트랩 전체 완료 (0-1 ~ 0-10) ✅**
 
 ## Phase 1: DB & DTO (Backend)
 
@@ -140,11 +145,11 @@
 
 ## 진행 중
 
-Phase 0 진행 중 (0-1 ~ 0-9 완료)
+**Phase 0 완료** (0-1 ~ 0-10). 모노레포 부트스트랩 종료.
 
 ## 다음 작업
 
-**Phase 0-10**: pre-commit hook — `.pre-commit-config.yaml`(api ruff) 점검 + JS(eslint/tsc) 연동. `pre-commit install`로 활성화. 완료 시 Phase 0 종료 → Phase 1-1(Video/Place 모델 + Alembic + RLS push)
+**Phase 1-1**: `Video`, `Place` SQLAlchemy 모델(UUID PK, GeoAlchemy2 Geography) + Alembic 초기 마이그레이션(PostGIS extension) + GIST/FK 인덱스 → `alembic upgrade head` → RLS 마이그레이션 `supabase db push`. (복잡 feature → `/pdca plan` 고려)
 
 ---
 
