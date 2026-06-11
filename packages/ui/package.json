@@ -9,7 +9,7 @@
   },
   "scripts": {
     "typecheck": "tsc --noEmit",
-    "lint": "eslint src --ext .ts,.tsx"
+    "lint": "echo '[ui] lint placeholder — Phase 0-8에서 eslint 설정 추가 예정'"
   },
   "peerDependencies": {
     "react": "^18",

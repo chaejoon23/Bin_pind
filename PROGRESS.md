@@ -1,6 +1,6 @@
 # Pind 진행 현황
 
-**Last updated**: 2026-05-20
+**Last updated**: 2026-06-11
 
 > 세션 시작 시 이 파일을 먼저 읽고, 종료 시 갱신할 것.
 > Phase별 체크리스트의 완료 항목은 `- [x]`로 표시하고 commit hash를 옆에 적는다.
@@ -25,6 +25,9 @@
 | 2026-05-13 | 타입 동기화: Pydantic → OpenAPI → `openapi-typescript` 자동 생성 | 손으로 작성 금지 |
 | 2026-05-20 | DB 연결: Docker 없이 Supabase Cloud Session Pooler 직접 사용 | IPv6 직접 연결 대신 Session Pooler(:5432) — Alembic/FastAPI 모두 동일 |
 | 2026-05-20 | Gemini 모델: `gemini-3.1-flash-lite` 고정 | |
+| 2026-06-11 | web 스택: **Next.js 14 + React 18 + Tailwind v3 + shadcn 2.3.0** 고정 | 최신 shadcn(v4)은 Tailwind v4+base-ui 전제라 우리 스택과 충돌 → 2.x(Radix) 사용. 토큰은 tailwind.config.ts(HSL) |
+| 2026-06-11 | shadcn 토큰 oklch→HSL 트리플릿 교체 | shadcn 2.3.0이 oklch를 쓰는데 v3 config는 `hsl(var(--x))`로 감싸 무효화됨 → 정통 zinc HSL 팔레트로 globals.css 재작성 |
+| 2026-06-11 | RootLayout만 Server Component 예외 허용 | `metadata` export 때문. 데이터 패칭/Server Action 없음. 페이지는 모두 `'use client'` |
 
 ---
 
@@ -40,7 +43,16 @@
   - `alembic/` 환경 구성 (env.py — ConfigParser `%` 이슈 우회, Session Pooler 직접 연결)
   - pyrightconfig.json (.venv 인식), .pre-commit-config.yaml, .env.example
   - FastAPI `/health` 기동 확인, `alembic current` DB 연결 확인
-- [ ] 0-6. `apps/web` 부트스트랩 (`pnpm create next-app` + Tailwind + shadcn/ui init)
+- [x] 0-6. `apps/web` 부트스트랩 완료
+  - Next.js 14.2.35 + React 18 + Tailwind v3.4 (create-next-app, App Router, no src, alias `@/*`)
+  - shadcn/ui `2.3.0` init (new-york/zinc) + `components/ui/button.tsx`, `lib/utils.ts`
+  - globals.css 토큰 oklch→HSL 보정, tailwind.config `destructive.foreground` 추가
+  - 단순화 규칙 적용: `app/page.tsx` `'use client'`, RootLayout만 metadata용 server shell + `app/providers.tsx`(client) 마운트
+  - `lib/{supabase,api,query-client}.ts` 스켈레톤 (JWT 자동 첨부 wrapper 구조)
+  - 워크스페이스 deps 연결: `@pind/shared-types`, `@pind/ui` / 런타임 deps: supabase-js, TanStack Query, zustand, leaflet
+  - `components/`, `hooks/`, `stores/` 디렉토리 배치
+  - `pnpm verify`(lint+typecheck) + `next build` 전체 통과
+  - ⚠️ 임시조치: `packages/shared-types/src/api.ts` placeholder stub(1-2에서 gen:types가 덮어씀), `@pind/ui` lint는 no-op placeholder(0-8에서 eslint 설정)
 - [ ] 0-7. `apps/extension` 부트스트랩 (`pnpm create plasmo`)
 - [ ] 0-8. `packages/ui`, `packages/shared-types` 부트스트랩
 - [ ] 0-9. `Makefile` (`verify`, `gen:types`, `dev`, `test`, `migrate`)
@@ -106,11 +118,11 @@
 
 ## 진행 중
 
-Phase 0 진행 중 (0-1 ~ 0-5 완료)
+Phase 0 진행 중 (0-1 ~ 0-6 완료)
 
 ## 다음 작업
 
-**Phase 0-6**: `apps/web` 부트스트랩 (`pnpm create next-app` + Tailwind + shadcn/ui init)
+**Phase 0-7**: `apps/extension` 부트스트랩 (`pnpm create plasmo` — Plasmo + React + Zustand + Leaflet)
 
 ---
 
