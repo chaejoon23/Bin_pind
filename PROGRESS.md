@@ -71,7 +71,13 @@
   - **ui**: 정식 eslint 도입 — flat config(`eslint.config.mjs`, eslint 9 + typescript-eslint 8), no-op placeholder lint 교체(`eslint src`). `next/*` import 금지 규칙(`no-restricted-imports`) 추가 + 동작 검증 완료
   - eslint-plugin-react는 첫 컴포넌트 승격 시(Phase 4-3) 추가 예정 (현재 컴포넌트 없음, YAGNI)
   - `pnpm verify` 전체 통과 (web·extension·ui·shared-types lint+typecheck)
-- [ ] 0-9. `Makefile` (`verify`, `gen:types`, `dev`, `test`, `migrate`)
+- [x] 0-9. `Makefile` 정비 완료
+  - `make verify` = `verify-api`(ruff/format/mypy) + `verify-js`(루트 recursive: web·extension·ui·shared-types) — 기존엔 api+web만 커버하던 걸 전체 모노레포로 정합
+  - api 타깃을 `.venv/bin/` 명시 → venv 수동 활성화 없이도 `make verify`/`dev`/`migrate`/`test` 동작
+  - `make dev`에서 docker `db-up` 의존 제거(DB는 Supabase Cloud), Web+API 동시 실행
+  - 누락됐던 `test-web` 타깃 추가(placeholder, Phase 2+에서 실제 테스트)
+  - `make verify` 녹색화 과정에서 드러난 기존 `alembic/env.py` import 정렬(ruff I001) 수정
+  - `make verify` 전체 통과 검증 완료
 - [ ] 0-10. pre-commit hook (ruff format, eslint --fix, tsc)
 
 ## Phase 1: DB & DTO (Backend)
@@ -134,11 +140,11 @@
 
 ## 진행 중
 
-Phase 0 진행 중 (0-1 ~ 0-8 완료)
+Phase 0 진행 중 (0-1 ~ 0-9 완료)
 
 ## 다음 작업
 
-**Phase 0-9**: `Makefile` 점검/정비 — 현재 `make verify`는 api+web만 커버. 루트 `pnpm verify`(web·extension·ui·shared-types recursive)와 정합되도록 `verify-js` 추가 검토. `gen-types`/`migrate`/`dev` 타깃은 구성 완료
+**Phase 0-10**: pre-commit hook — `.pre-commit-config.yaml`(api ruff) 점검 + JS(eslint/tsc) 연동. `pre-commit install`로 활성화. 완료 시 Phase 0 종료 → Phase 1-1(Video/Place 모델 + Alembic + RLS push)
 
 ---
 
