@@ -21,7 +21,9 @@ venv/
 *.egg-info/
 
 ## Generated
-packages/shared-types/src/api.ts
+# NOTE: packages/shared-types/src/api.ts 는 추적함 (gitignore 안 함).
+#   - 클론 직후에도 web/extension/shared-types가 typecheck 되도록 생성 산출물을 커밋.
+#   - `make gen-types`(openapi-typescript)가 덮어쓴다. 손으로 수정 금지.
 
 ## Env
 .env

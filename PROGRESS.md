@@ -29,6 +29,8 @@
 | 2026-06-11 | shadcn 토큰 oklch→HSL 트리플릿 교체 | shadcn 2.3.0이 oklch를 쓰는데 v3 config는 `hsl(var(--x))`로 감싸 무효화됨 → 정통 zinc HSL 팔레트로 globals.css 재작성 |
 | 2026-06-11 | RootLayout만 Server Component 예외 허용 | `metadata` export 때문. 데이터 패칭/Server Action 없음. 페이지는 모두 `'use client'` |
 | 2026-06-11 | Extension: Plasmo 0.90.5 + React 18 | create-plasmo가 example template을 잡아 package.json 수동 정정. Tailwind는 후속 |
+| 2026-06-11 | shared-types `api.ts` 추적(gitignore 해제) | 생성 타입이지만 커밋 → 클론 직후 typecheck 보장. gen-types가 덮어씀 |
+| 2026-06-11 | ui lint: eslint 9 flat config + typescript-eslint | next/* import 금지 규칙. 컴포넌트 생기면 eslint-plugin-react 추가 |
 
 ---
 
@@ -64,7 +66,11 @@
   - 인입 .github/workflows(Chrome Web Store submit) 제거 — 모노레포 하위라 미작동, 배포는 Phase 5-2 루트 구성
   - `.gitignore`에 `*.tsbuildinfo` 추가, `pnpm verify`(typecheck) 통과
   - ⚠️ `plasmo dev/build`는 네이티브 빌드 스크립트(@swc/core, esbuild, lmdb, sharp) 필요 → 최초 1회 `pnpm approve-builds` 후 사용. Tailwind는 후속 도입(현재 popup 인라인 style)
-- [ ] 0-8. `packages/ui`, `packages/shared-types` 부트스트랩
+- [x] 0-8. `packages/ui`, `packages/shared-types` 부트스트랩 완료
+  - **shared-types**: `src/api.ts` gitignore 해제 → 생성 타입을 추적 산출물로 커밋(클론 직후 typecheck 보장). `make gen-types`(openapi-typescript)가 덮어씀. placeholder seed 커밋(Phase 1-2에서 실제 타입으로 교체)
+  - **ui**: 정식 eslint 도입 — flat config(`eslint.config.mjs`, eslint 9 + typescript-eslint 8), no-op placeholder lint 교체(`eslint src`). `next/*` import 금지 규칙(`no-restricted-imports`) 추가 + 동작 검증 완료
+  - eslint-plugin-react는 첫 컴포넌트 승격 시(Phase 4-3) 추가 예정 (현재 컴포넌트 없음, YAGNI)
+  - `pnpm verify` 전체 통과 (web·extension·ui·shared-types lint+typecheck)
 - [ ] 0-9. `Makefile` (`verify`, `gen:types`, `dev`, `test`, `migrate`)
 - [ ] 0-10. pre-commit hook (ruff format, eslint --fix, tsc)
 
@@ -128,11 +134,11 @@
 
 ## 진행 중
 
-Phase 0 진행 중 (0-1 ~ 0-7 완료)
+Phase 0 진행 중 (0-1 ~ 0-8 완료)
 
 ## 다음 작업
 
-**Phase 0-8**: `packages/ui`, `packages/shared-types` 부트스트랩 (ui eslint 정식 설정 → no-op placeholder 교체, shared-types gen:types 파이프라인 점검)
+**Phase 0-9**: `Makefile` 점검/정비 — 현재 `make verify`는 api+web만 커버. 루트 `pnpm verify`(web·extension·ui·shared-types recursive)와 정합되도록 `verify-js` 추가 검토. `gen-types`/`migrate`/`dev` 타깃은 구성 완료
 
 ---
 
