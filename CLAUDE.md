@@ -79,3 +79,11 @@ pind/
 - Web frontend: `apps/web/CLAUDE.md`
 - Extension: `apps/extension/CLAUDE.md`
 - Supabase: `supabase/CLAUDE.md`
+
+---
+
+## bkit 사용 정책
+- 복잡한 feature (Phase 3, 4)는 `/pdca plan <feature>` 부터 시작.
+- 단순 scaffolding (Phase 0, 대부분의 Phase 1/2)은 PDCA 생략.
+- bkit이 생성한 `docs/0{1..4}/features/*.md` 는 PROGRESS.md의 해당 Phase 항목에 링크.
+- PROGRESS.md가 마스터 진행 기록. bkit 문서는 deep-dive.

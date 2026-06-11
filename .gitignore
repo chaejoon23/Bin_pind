@@ -37,3 +37,6 @@ venv/
 
 ## Supabase local
 supabase/.temp/
+
+## bkit (로컬 플러그인 상태 — 커밋하지 않음)
+.bkit/

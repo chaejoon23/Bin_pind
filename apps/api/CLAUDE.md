@@ -141,3 +141,13 @@ make verify  # = ruff check . && ruff format --check . && mypy app && pytest
 - API 키를 코드에 하드코딩 (반드시 `settings.py` 경유)
 - Webhook 엔드포인트에 시크릿 검증 누락
 - `print()` 로 로깅 (`structlog` 사용)
+
+---
+
+### Gemini 모델 버전
+
+- **현재 사용 모델**: `gemini-2.5-flash` (stable GA)
+- **절대 사용 금지**: `gemini-2.0-*` (2026-06-01 shutdown), `gemini-1.5-*` (이미 404)
+- **Gemini 3 시리즈**: 현재 대부분 preview — GA 전환 전까지 사용 금지.
+  Google I/O 2026 (2026-05-19) 이후 `gemini-3.x-flash` GA 여부 확인 후 재검토.
+- 모델명은 환경변수 `GEMINI_MODEL`로 관리. 코드 하드코딩 금지.
