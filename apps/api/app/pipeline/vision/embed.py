@@ -144,7 +144,7 @@ class Dinov3Embedder:
         self._model_id = model_id
         self._batch_size = batch_size
         self._device = device or ("cuda" if torch.cuda.is_available() else "cpu")
-        self._processor = AutoImageProcessor.from_pretrained(model_id)
+        self._processor = AutoImageProcessor.from_pretrained(model_id)  # type: ignore[no-untyped-call]
         self._model = AutoModel.from_pretrained(model_id).to(self._device).eval()
         logger.info("dinov3_loaded", model_id=model_id, device=self._device)
 

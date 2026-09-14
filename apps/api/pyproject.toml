@@ -23,7 +23,8 @@ dependencies = [
     "tenacity>=8.3.0",
     # Vision frontend (pipeline/vision) — 프레임 화질 지표·미니 ISP·장면 dedup
     # headless 빌드: 서버에 GUI 의존성(libGL 등)을 끌어오지 않는다.
-    "opencv-python-headless>=4.10.0",
+    # <5: opencv 5.0 에서 MSER 이 간판 영역을 검출하지 못함 (textness 테스트 실패 확인)
+    "opencv-python-headless>=4.10.0,<5",
     "numpy>=1.26",
     # Logging
     "structlog>=24.2.0",
