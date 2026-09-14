@@ -21,6 +21,10 @@ dependencies = [
     "yt-dlp>=2024.5.1",
     "sentence-transformers>=3.0.0",
     "tenacity>=8.3.0",
+    # Vision frontend (pipeline/vision) — 프레임 화질 지표·미니 ISP·장면 dedup
+    # headless 빌드: 서버에 GUI 의존성(libGL 등)을 끌어오지 않는다.
+    "opencv-python-headless>=4.10.0",
+    "numpy>=1.26",
     # Logging
     "structlog>=24.2.0",
     # HTTP client
@@ -28,6 +32,11 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
+# 장면 dedup에 DINOv3 임베딩을 쓸 때만 필요. 없으면 pHash+HSV 임베더로 자동 폴백한다.
+vision-embed = [
+    "torch>=2.3.0",
+    "transformers>=4.44.0",
+]
 dev = [
     "pytest>=8.2.0",
     "pytest-asyncio>=0.23.6",

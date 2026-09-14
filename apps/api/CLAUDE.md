@@ -30,8 +30,18 @@ apps/api/
 │   │   ├── analyze_audio.py     # Gemini 텍스트 분석 (B안 인터페이스)
 │   │   ├── analyze_vision.py    # Gemini Vision (B안 인터페이스)
 │   │   ├── resolve.py           # 후보 dedup + Google Places 지오코딩
-│   │   └── orchestrator.py      # 파이프라인 전체 흐름
+│   │   ├── orchestrator.py      # 파이프라인 전체 흐름
+│   │   └── vision/              # 비전 프론트엔드 — VLM 앞단 프레임 선별·복원
+│   │       ├── types.py         # QualityMetrics, FrameStats, Keyframe, VisionFrontendConfig
+│   │       ├── decode.py        # ffmpeg 균일 샘플링
+│   │       ├── quality.py       # 무참조 화질 지표 + readability_score
+│   │       ├── textness.py      # MSER 간판 문자 saliency
+│   │       ├── isp.py           # 미니 ISP (WB/감마/디노이즈/CLAHE/언샤프)
+│   │       ├── embed.py         # Embedder 프로토콜 (pHash+HSV / DINOv3)
+│   │       ├── dedup.py         # 샷 분할 + 중복 샷 제거
+│   │       └── select.py        # select_keyframes 오케스트레이터
 │   └── webhooks/                # Supabase Webhook 핸들러
+├── benchmarks/                  # 성능 측정 스크립트 (bench_keyframes.py 등)
 ├── alembic/                     # 마이그레이션
 ├── tests/
 │   ├── unit/
@@ -92,6 +102,18 @@ async def analyze_audio(transcript: Transcript) -> list[PlaceCandidate]: ...
 async def analyze_vision(frames: list[Frame]) -> list[PlaceCandidate]: ...
 ```
 나중에 정확도 비교 실험 시 orchestrator만 갈아끼우면 되도록.
+
+### 비전 프론트엔드 (`pipeline/vision/`)
+
+- 공개 진입점은 `select_keyframes` 하나. 나머지 모듈은 순수 함수 집합.
+- **저조도 복원은 화질 게이트보다 먼저 실행한다.** 이 순서를 뒤집으면 실내 저조도 프레임이
+  전부 탈락해 실내 장소가 결과에서 사라진다. 게이트는 "품질 낮은 프레임"이 아니라
+  "복원해도 못 읽는 프레임"만 거른다.
+- 디노이징 판정은 **감마 후** σ 기준. 원본 σ는 어두운 프레임에서 과소평가된다.
+- 프레임 픽셀은 청크(32장) 단위로만 메모리에 두고, 최종 선별된 프레임만 다시 읽는다.
+- 임계값을 바꿀 때는 `benchmarks/bench_keyframes.py`로 전후 표를 뽑아 비교한다. 감축률만
+  보지 말고 **간판 있는 장면이 살아남았는지**를 컨택트시트로 눈으로 확인할 것.
+- 설계 근거·측정값·한계: `docs/vision-frontend.md`
 
 ### 외부 API 호출
 - `tenacity`로 재시도 데코레이트:
