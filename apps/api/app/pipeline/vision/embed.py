@@ -136,7 +136,7 @@ class Dinov3Embedder:
             from transformers import AutoImageProcessor, AutoModel
         except ImportError as exc:  # pragma: no cover - 옵션 의존성
             raise ImportError(
-                "Dinov3Embedder 는 torch 와 transformers 가 필요합니다. "
+                "Dinov3Embedder 는 torch·torchvision·transformers·pillow 가 필요합니다. "
                 "apps/api 에서 `pip install -e '.[vision-embed]'` 를 실행하세요."
             ) from exc
 
@@ -170,7 +170,8 @@ def build_embedder(kind: str = "auto") -> Embedder:
 
     Args:
         kind: "perceptual" | "dinov3" | "auto". "auto"는 DINOv3를 먼저 시도하고
-            의존성이 없으면 조용히 perceptual로 내려간다.
+            의존성이 없거나(ImportError) 모델을 받지 못하면(OSError — gated repo 403,
+            네트워크 오류 등) perceptual로 내려간다.
     """
     if kind == "perceptual":
         return PerceptualEmbedder()
@@ -181,5 +182,8 @@ def build_embedder(kind: str = "auto") -> Embedder:
             return Dinov3Embedder()
         except ImportError:
             logger.info("dinov3_unavailable_fallback_perceptual")
+            return PerceptualEmbedder()
+        except OSError as exc:
+            logger.warning("dinov3_load_failed_fallback_perceptual", error=str(exc)[:200])
             return PerceptualEmbedder()
     raise ValueError(f"알 수 없는 임베더: {kind}")

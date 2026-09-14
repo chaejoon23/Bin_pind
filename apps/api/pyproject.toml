@@ -34,9 +34,12 @@ dependencies = [
 
 [project.optional-dependencies]
 # 장면 dedup에 DINOv3 임베딩을 쓸 때만 필요. 없으면 pHash+HSV 임베더로 자동 폴백한다.
+# AutoImageProcessor 가 pillow·torchvision 을 요구한다. 모델은 HF gated repo → HF_TOKEN 필요.
 vision-embed = [
     "torch>=2.3.0",
+    "torchvision>=0.18.0",
     "transformers>=4.44.0",
+    "pillow>=10.0.0",
 ]
 dev = [
     "pytest>=8.2.0",

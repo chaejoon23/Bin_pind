@@ -5,6 +5,7 @@ from __future__ import annotations
 import cv2
 import numpy as np
 import pytest
+from app.pipeline.vision import embed as embed_module
 from app.pipeline.vision.dedup import (
     adjacent_similarities,
     cosine_similarity_matrix,
@@ -94,6 +95,28 @@ def test_build_embedder_perceptual() -> None:
 def test_build_embedder_rejects_unknown() -> None:
     with pytest.raises(ValueError, match="알 수 없는 임베더"):
         build_embedder("nope")
+
+
+@pytest.mark.parametrize("error", [ImportError("no torch"), OSError("gated repo 403")])
+def test_build_embedder_auto_falls_back_when_dinov3_unavailable(
+    monkeypatch: pytest.MonkeyPatch, error: Exception
+) -> None:
+    def _raise(**_: object) -> None:
+        raise error
+
+    monkeypatch.setattr(embed_module, "Dinov3Embedder", _raise)
+    assert build_embedder("auto").name.startswith("perceptual")
+
+
+def test_build_embedder_dinov3_does_not_swallow_load_error(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def _raise(**_: object) -> None:
+        raise OSError("gated repo 403")
+
+    monkeypatch.setattr(embed_module, "Dinov3Embedder", _raise)
+    with pytest.raises(OSError, match="gated"):
+        build_embedder("dinov3")
 
 
 # ----------------------------------------------------------------------- 유사도 유틸

@@ -123,7 +123,7 @@ MSER + 기하 필터 방식이다(Neumann & Matas, CVPR 2012의 전처리 단계
 | | `PerceptualEmbedder` (기본) | `Dinov3Embedder` (옵션) |
 |---|---|---|
 | 특징 | pHash(63bit) + HSV 히스토그램 | DINOv3 ViT-S/16 CLS 토큰 |
-| 의존성 | 없음 (OpenCV만) | torch + transformers (~86MB 가중치) |
+| 의존성 | 없음 (OpenCV만) | torch + torchvision + transformers + pillow (~86MB 가중치) |
 | 속도 | 프레임당 <1ms (CPU) | CPU에서 수십 ms |
 | 강점 | 컷 전환 검출 | 조명·각도·스케일이 바뀐 **같은 장소**를 묶음 |
 | 약점 | 같은 가게를 다른 각도에서 찍으면 다른 장면으로 봄 | 무거움 |
@@ -136,6 +136,16 @@ MSER + 기하 필터 방식이다(Neumann & Matas, CVPR 2012의 전처리 단계
 모델: [`facebook/dinov3-vits16-pretrain-lvd1689m`](https://huggingface.co/facebook/dinov3-vits16-pretrain-lvd1689m)
 (Siméoni et al., [arXiv:2508.10104](https://arxiv.org/abs/2508.10104)). DINOv3 라이선스는
 Apache/MIT가 아니므로 상용 배포 전 조건 확인이 필요하다.
+
+**사용 전 준비** — 이 모델은 Hugging Face **gated repo**라 extra 설치만으로는 받을 수 없다(403).
+
+1. `apps/api`에서 `pip install -e '.[vision-embed]'`
+2. 모델 페이지에서 로그인 후 라이선스 동의 → 승인 대기
+3. [Access Token](https://huggingface.co/settings/tokens)(read) 발급 후 `HF_TOKEN` 환경변수로 설정
+   (또는 `huggingface-cli login`). 토큰은 커밋 금지.
+
+`build_embedder("auto")`는 의존성이 없거나(`ImportError`) 모델을 받지 못하면(`OSError`) 경고를
+남기고 `PerceptualEmbedder`로 내려간다. `"dinov3"`를 명시하면 폴백 없이 예외를 그대로 올린다.
 
 ## 화질 지표
 
