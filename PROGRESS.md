@@ -1,6 +1,6 @@
 # Pind 진행 현황
 
-**Last updated**: 2026-09-14
+**Last updated**: 2026-09-15
 
 > 세션 시작 시 이 파일을 먼저 읽고, 종료 시 갱신할 것.
 > Phase별 체크리스트의 완료 항목은 `- [x]`로 표시하고 commit hash를 옆에 적는다.
@@ -36,6 +36,7 @@
 | 2026-09-14 | 디노이징 판정을 **감마 후** σ 기준으로 | 어두운 화소는 노이즈 진폭도 눌려 원본 σ가 과소평가됨(1.26 → 감마 후 3.22 → CLAHE 후 5.93). 강도도 σ 비례(h≈2.5σ), 위치는 CLAHE 앞 |
 | 2026-09-14 | 장면 임베더는 `Embedder` 프로토콜로 교체 가능하게 | 기본 pHash+HSV(의존성 0), 옵션 DINOv3 ViT-S/16(`[vision-embed]` extra). 컷 전환은 고전 방식으로 충분하고 서버 비용이 싸다. 재방문 판정 비교 실험은 미실시 |
 | 2026-09-14 | 선명도 임계는 영상별 **상대** 기준(90퍼센타일 정규화 + 하위 N% 컷) | 절대 임계값은 촬영 기기·비트레이트에 따라 자리가 크게 달라져 재사용 불가 |
+| 2026-09-15 | **유사도 임계를 임베더별 권장값으로** (perceptual 0.88/0.95, dinov3 0.97/0.97) | 코사인 스케일이 임베더마다 다름(다른 장면 쌍 최대: pHash 0.247 vs DINOv3 0.941). pHash용 0.88을 DINOv3에 쓰면 감축률은 94.3%로 올랐지만 장소 2곳 유실. 과분할 쪽 오차를 택함 |
 | 2026-09-14 | 벤치마크 입력은 **합성 영상** | 실제 YouTube 영상은 저작권·재현성 문제. `benchmarks/make_sample_video.py`로 누구나 같은 수치 재현. 단, 실영상 성능 보장 아님 → 실영상 검증은 별도 과제 |
 
 ---
@@ -106,8 +107,12 @@
 - [x] `vision/select.py` — 오케스트레이터 `select_keyframes`
 - [x] `benchmarks/bench_keyframes.py` + `make_sample_video.py` — 단계별 감축 표 · 토큰 절감 · 전후 비교 이미지 · 프레임별 CSV
 - [x] 단위/엔드투엔드 테스트 63개, ruff(ANN) + mypy strict 통과
+- [x] 반영 시 검증 실패 수정 — opencv `<5` 고정, mypy no-untyped-call (aca77d7)
+- [x] `vision-embed` extra에 torchvision·pillow 추가, `auto`가 DINOv3 로드 실패(OSError)도 폴백 (c81dbb4)
+- [x] 임베더별 권장 유사도 임계 — DINOv3에 pHash 임계 적용 시 장소 유실 발견·수정 (테스트 68개)
 - [ ] **실영상 검증** — 실제 브이로그 10편으로 감축률뿐 아니라 **장소 추출 재현율** 측정
-- [ ] DINOv3 vs pHash 재방문 판정 비교 실험
+- [x] DINOv3 vs pHash 비교 — 합성 영상에서 수행 (임계 보정 후 둘 다 53→5장, 장소 5/5)
+- [ ] DINOv3 vs pHash **실영상** 재방문 판정 비교 + 임베더별 임계 재조정
 - [ ] 문자 점수 정규화 상수 실사 분포로 재튜닝
 - [ ] `analyze_vision`(Gemini Vision) 연결 — Phase 3-1에서
 

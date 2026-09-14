@@ -228,7 +228,8 @@ def _report(
         f"유사도 임계 {selection.config.scene_similarity_threshold} |",
         f"| 중복 샷 제거 후 | {summary.shots_detected - counts.get('duplicate', 0)} | "
         f"{pct(summary.shots_detected - counts.get('duplicate', 0))} | "
-        f"재방문 컷 {counts.get('duplicate', 0)}개 병합 |",
+        f"재방문 컷 {counts.get('duplicate', 0)}개 병합 "
+        f"(임계 {selection.config.duplicate_shot_threshold}) |",
         f"| **최종 VLM 입력** | **{selected}** | **{pct(selected)}** | "
         f"예산 컷 {counts.get('budget', 0)} |",
         "",

@@ -245,6 +245,49 @@ def test_summary_counts_are_consistent(three_scene_video: Path, tmp_path: Path) 
     assert 0.0 <= summary.reduction_ratio <= 1.0
 
 
+class _StrictThresholdEmbedder(PerceptualEmbedder):
+    """권장 임계만 다른 임베더 — 임계가 임베더에서 오는지 확인용."""
+
+    @property
+    def scene_similarity_threshold(self) -> float:
+        return 0.5
+
+    @property
+    def duplicate_shot_threshold(self) -> float:
+        return 0.99
+
+
+@requires_ffmpeg
+def test_thresholds_default_to_embedder_recommendation(
+    three_scene_video: Path, tmp_path: Path
+) -> None:
+    selection = select_keyframes(
+        three_scene_video,
+        tmp_path / "work",
+        config=VisionFrontendConfig(sample_fps=1.0, blur_reject_percentile=0.0),
+        embedder=_StrictThresholdEmbedder(),
+    )
+    assert selection.config.scene_similarity_threshold == 0.5
+    assert selection.config.duplicate_shot_threshold == 0.99
+
+
+@requires_ffmpeg
+def test_explicit_thresholds_override_embedder(three_scene_video: Path, tmp_path: Path) -> None:
+    selection = select_keyframes(
+        three_scene_video,
+        tmp_path / "work",
+        config=VisionFrontendConfig(
+            sample_fps=1.0,
+            blur_reject_percentile=0.0,
+            scene_similarity_threshold=0.8,
+            duplicate_shot_threshold=0.9,
+        ),
+        embedder=_StrictThresholdEmbedder(),
+    )
+    assert selection.config.scene_similarity_threshold == 0.8
+    assert selection.config.duplicate_shot_threshold == 0.9
+
+
 @requires_ffmpeg
 def test_enhance_disabled_keeps_metrics_after_empty(
     three_scene_video: Path, tmp_path: Path

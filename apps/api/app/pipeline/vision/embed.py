@@ -12,6 +12,16 @@
 두 구현 모두 L2 정규화된 벡터를 돌려주므로 유사도는 항상 코사인으로 계산한다.
 `PerceptualEmbedder`는 두 블록을 각각 정규화한 뒤 가중치를 곱해 이어 붙이므로, 코사인 값이
 "해밍 유사도와 히스토그램 유사도의 가중 평균"과 같은 의미를 갖는다.
+
+**유사도 스케일은 임베더마다 다르다.** 합성 샘플 영상 실측(`benchmarks/make_sample_video.py`):
+
+| | 같은 샷 인접 | 컷 경계 최대 | 다른 장면 쌍 최대 | 재방문 최소 |
+|---|---:|---:|---:|---:|
+| perceptual | 0.924 | 0.136 | 0.247 | 0.955 |
+| dinov3 | 0.993 | 0.937 | 0.941 | 0.993 |
+
+DINOv3는 서로 다른 장면도 0.8~0.94가 나오므로 pHash용 임계(0.88)를 그대로 쓰면 다른 장소가
+한 샷으로 합쳐져 유실된다. 그래서 각 임베더가 자기 스케일에 맞는 권장 임계를 함께 노출한다.
 """
 
 from __future__ import annotations
@@ -38,6 +48,16 @@ class Embedder(Protocol):
     @property
     def name(self) -> str:
         """로그·벤치마크 표에 찍히는 식별자."""
+        ...
+
+    @property
+    def scene_similarity_threshold(self) -> float:
+        """인접 프레임을 같은 샷으로 묶는 권장 코사인 임계."""
+        ...
+
+    @property
+    def duplicate_shot_threshold(self) -> float:
+        """떨어진 두 샷을 재방문 중복으로 보는 권장 코사인 임계."""
         ...
 
     def embed(self, images: list[BgrImage]) -> Embedding:
@@ -95,6 +115,14 @@ class PerceptualEmbedder:
     def name(self) -> str:
         return "perceptual(phash+hsv)"
 
+    @property
+    def scene_similarity_threshold(self) -> float:
+        return 0.88
+
+    @property
+    def duplicate_shot_threshold(self) -> float:
+        return 0.95
+
     def embed(self, images: list[BgrImage]) -> Embedding:
         rows: list[Embedding] = []
         for image in images:
@@ -151,6 +179,16 @@ class Dinov3Embedder:
     @property
     def name(self) -> str:
         return f"dinov3({self._model_id.split('/')[-1]})"
+
+    @property
+    def scene_similarity_threshold(self) -> float:
+        # 다른 장면 최대 0.941 ~ 같은 샷 최소 0.993 사이. 실영상은 카메라 이동으로 같은 샷
+        # 유사도가 더 낮을 수 있어 과분할 쪽(프레임 증가, 장소 유실 없음)으로 여유를 둔다.
+        return 0.97
+
+    @property
+    def duplicate_shot_threshold(self) -> float:
+        return 0.97
 
     def embed(self, images: list[BgrImage]) -> Embedding:
         rgb = [cv2.cvtColor(image, cv2.COLOR_BGR2RGB) for image in images]

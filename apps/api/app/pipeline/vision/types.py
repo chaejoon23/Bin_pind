@@ -162,8 +162,19 @@ class VisionFrontendConfig(BaseModel):
     )
 
     # --- 중복 제거 ---
-    scene_similarity_threshold: float = Field(
-        default=0.88, ge=0.0, le=1.0, description="이 값 이상 유사하면 같은 샷으로 묶음"
+    scene_similarity_threshold: float | None = Field(
+        default=None,
+        ge=0.0,
+        le=1.0,
+        description="이 값 이상 유사하면 같은 샷으로 묶음. None이면 임베더 권장값"
+        " (perceptual 0.88 / dinov3 0.97) — 유사도 스케일이 임베더마다 다르다",
+    )
+    duplicate_shot_threshold: float | None = Field(
+        default=None,
+        ge=0.0,
+        le=1.0,
+        description="이 값 이상 유사한 떨어진 샷은 재방문 중복으로 제거. None이면 임베더 권장값"
+        " (perceptual 0.95 / dinov3 0.97)",
     )
     min_shot_gap_sec: float = Field(
         default=1.5, ge=0.0, description="샷 경계 최소 간격. 손떨림에 의한 과분할 방지"

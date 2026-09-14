@@ -47,7 +47,6 @@ from app.pipeline.vision.types import (
 logger = structlog.get_logger(__name__)
 
 _CHUNK_SIZE = 32
-_DUPLICATE_SHOT_SIMILARITY = 0.95
 
 
 class _FrameAnalysis(NamedTuple):
@@ -207,8 +206,26 @@ def select_keyframes(
     Returns:
         선별 결과와 집계. `keyframes[i].path`가 VLM에 넣을 JPEG 경로다.
     """
-    cfg = config or VisionFrontendConfig()
     active_embedder = embedder or PerceptualEmbedder()
+    base_cfg = config or VisionFrontendConfig()
+    # 미지정 임계는 임베더 권장값으로 확정한다(유사도 스케일이 임베더마다 다름).
+    # 결과의 config에도 실제 사용값이 남도록 확정값으로 교체해 둔다.
+    scene_threshold = (
+        base_cfg.scene_similarity_threshold
+        if base_cfg.scene_similarity_threshold is not None
+        else active_embedder.scene_similarity_threshold
+    )
+    duplicate_threshold = (
+        base_cfg.duplicate_shot_threshold
+        if base_cfg.duplicate_shot_threshold is not None
+        else active_embedder.duplicate_shot_threshold
+    )
+    cfg = base_cfg.model_copy(
+        update={
+            "scene_similarity_threshold": scene_threshold,
+            "duplicate_shot_threshold": duplicate_threshold,
+        }
+    )
     started = time.perf_counter()
 
     frames_dir = work_dir / "frames"
@@ -269,7 +286,7 @@ def select_keyframes(
         all_embeddings[kept_positions],
         [stats[position].timestamp_sec for position in kept_positions],
         [stats[position].index for position in kept_positions],
-        similarity_threshold=cfg.scene_similarity_threshold,
+        similarity_threshold=scene_threshold,
         min_shot_gap_sec=cfg.min_shot_gap_sec,
     )
     index_to_position = {stats[position].index: position for position in kept_positions}
@@ -287,7 +304,7 @@ def select_keyframes(
         [all_embeddings[position] for _, position, _ in picks]
     ).astype(np.float32)
     surviving = dedup.drop_near_duplicate_shots(
-        representative_embeddings, similarity_threshold=_DUPLICATE_SHOT_SIMILARITY
+        representative_embeddings, similarity_threshold=duplicate_threshold
     )
     dropped_as_duplicate = set(range(len(picks))) - set(surviving)
     for order in sorted(dropped_as_duplicate):
@@ -297,7 +314,7 @@ def select_keyframes(
                 frame_index=stats[position].index,
                 timestamp_sec=stats[position].timestamp_sec,
                 reason=RejectReason.DUPLICATE,
-                detail="앞선 샷과 유사도 >= 0.95",
+                detail=f"앞선 샷과 유사도 >= {duplicate_threshold}",
             )
         )
     picks = [picks[order] for order in surviving]
