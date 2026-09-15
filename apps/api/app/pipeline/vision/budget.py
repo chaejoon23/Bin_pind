@@ -11,8 +11,10 @@
 구간도 둘 다 잡을 수 있는 폭이다.
 
 이 규칙(점수 = 검출 박스 수, 간격 비율 0.5, 동점은 앞 프레임)은 유튜브 개발 세트 3편에서
-정했다. 파라미터를 바꾸면 사전 등록한 테스트 비교가 무효가 된다
-(`benchmarks/youtube/PREREGISTRATION.md`).
+정했고(16장에 8/18, 무작위 2.7), **사전 등록한 테스트 3편에서는 재현되지 않아 기각됐다**
+(35곳 중 4, 기본 diverse 3, 무작위 기댓값 3.9). 박스 수 상위 프레임은 메뉴판·진열대처럼 문자가
+빽빽한 프레임이라 장소 이름 프레임과 달랐다. 실험 재현을 위해 남긴다
+(`benchmarks/youtube/PREREGISTRATION.md`, `docs/vision-frontend-decisions.md`).
 """
 
 from __future__ import annotations

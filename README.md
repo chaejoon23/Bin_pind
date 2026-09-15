@@ -80,7 +80,8 @@ sRGB 도메인 미니 ISP: 화이트밸런스(Shades-of-Gray) → 적응 감마 
 > 실영상에서 프레임 선별이 무작위 수준이다. 개발 세트에서 고른 대안(`text_nms`)도 테스트에서 이득이 재현되지 않아 채택하지
 > 않았다. 경위와 수치는 docs/vision-frontend.md.
 
-**설계 근거와 실패했던 시도, 측정값 전체 → [docs/vision-frontend.md](docs/vision-frontend.md)**
+**설계 결정과 실패 기록(시간순) → [docs/vision-frontend-decisions.md](docs/vision-frontend-decisions.md)**
+**구현 설명과 측정값 전체 → [docs/vision-frontend.md](docs/vision-frontend.md)**
 
 ```bash
 cd apps/api
@@ -159,7 +160,8 @@ DB는 Supabase Cloud Session Pooler에 직접 붙는다(로컬 Docker 불필요)
 
 | 문서 | 내용 |
 |---|---|
-| [docs/vision-frontend.md](docs/vision-frontend.md) | 비전 프론트엔드 설계 근거 · 장소 보존률 검증 · 한계 |
+| [docs/vision-frontend-decisions.md](docs/vision-frontend-decisions.md) | 비전 프론트엔드 설계 결정 17개 · 틀린 판단과 발견 경로 · 교훈 · 현재 상태 |
+| [docs/vision-frontend.md](docs/vision-frontend.md) | 비전 프론트엔드 구현 설명 · 장소 보존률 검증 · 유튜브 실측 · 사전 등록 테스트 |
 | [PROGRESS.md](PROGRESS.md) | Phase별 진행 상황과 ADR |
 | [CLAUDE.md](CLAUDE.md) | 레포 전체 컨벤션 |
 | [apps/api/CLAUDE.md](apps/api/CLAUDE.md) | 백엔드 컨벤션 (SQLAlchemy · Pydantic · 파이프라인 규칙) |

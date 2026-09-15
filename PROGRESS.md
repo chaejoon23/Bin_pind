@@ -136,6 +136,7 @@
       개발 세트 실제 코드 8/18 (시뮬레이션과 동일), 합성 7/8. 테스트 130개. **기본값은 diverse 유지**
 - [x] 사전 등록 `benchmarks/youtube/PREREGISTRATION.md` — 테스트 3편·예비 3편, 채택 규칙(text-det ≥ full+3 & > 무작위)
 - [x] 테스트 3편 라벨·구간 커밋(결과 전) → 사전 등록 명령 실행 → **text-det 4 vs full 3 vs 무작위 3.9 vs 오라클 28 (35곳) → 채택 안 함, diverse 유지**
+- [x] 설계 결정·실패 기록 문서화 — [docs/vision-frontend-decisions.md](docs/vision-frontend-decisions.md) (결정 17개, 교훈, 현재 상태)
 - [ ] 다음 방향 결정 (예산-비용 곡선 / 문자 인식 기반 선택 / 자막·음성 신호) — 새 테스트 세트 필요
 - [x] DINOv3 vs pHash 비교 — 합성 영상에서 수행 (임계 보정 후 perceptual 53→6장, dinov3 53→5장, 장소 4/4)
 - [ ] DINOv3 vs pHash **실영상** 재방문 판정 비교 + 임베더별 임계 재조정

@@ -218,14 +218,15 @@ class VisionFrontendConfig(BaseModel):
         " 예산 컷."
         " 'text_nms' = 게이트 통과 프레임을 학습된 문자 검출기(PP-OCRv4 DB) 박스 수 순으로 보며"
         " 시간 간격을 두고 고른다. 유튜브 개발 세트에서 diverse 는 무작위 수준이었다"
-        " (docs/vision-frontend.md). 테스트 세트 확인 전까지 기본값은 diverse",
+        " (docs/vision-frontend.md). text_nms 는 사전 등록 테스트에서 기각됐다"
+        " (35곳 중 4 vs diverse 3, 무작위 기댓값 3.9) — 실험 재현용으로만 남긴다",
     )
     text_nms_gap_ratio: float = Field(
         default=0.5,
         gt=0.0,
         le=1.0,
         description="text_nms 의 최소 시간 간격 = 이 비율 × (샘플 수 / max_keyframes)."
-        " 사전 등록 값이므로 테스트 세트 비교 전에 바꾸지 말 것",
+        " 사전 등록 테스트에 쓴 값 (docs/vision-frontend-decisions.md #13–15)",
     )
     text_weight: float = Field(
         default=0.35, ge=0.0, le=1.0, description="대표 프레임 점수에서 간판 텍스트 가중치"
