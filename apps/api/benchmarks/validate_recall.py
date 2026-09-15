@@ -560,7 +560,8 @@ def run_video(
         "### 잃은 장소",
         format_losses(results, places, oracle, dark, clip_start=clip_start),
         f"판정: 외부 OCR({ocr.label}), "
-        f"문자열 유사도 {threshold:.2f} 이상(한글은 자모 단위). {dark_note}",
+        f"문자열 유사도 {threshold:.2f} 이상(한글은 자모 단위). {dark_note} "
+        f"임베더: {embedder.name}. 키프레임 예산: {max_keyframes}장.",
     ]
     markdown = "\n\n".join(sections)
     (out_dir / "recall_report.md").write_text(markdown + "\n", encoding="utf-8")
