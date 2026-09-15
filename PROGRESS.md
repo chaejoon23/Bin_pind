@@ -37,6 +37,9 @@
 | 2026-09-14 | 장면 임베더는 `Embedder` 프로토콜로 교체 가능하게 | 기본 pHash+HSV(의존성 0), 옵션 DINOv3 ViT-S/16(`[vision-embed]` extra). 컷 전환은 고전 방식으로 충분하고 서버 비용이 싸다. 재방문 판정 비교 실험은 미실시 |
 | 2026-09-14 | 선명도 임계는 영상별 **상대** 기준(90퍼센타일 정규화 + 하위 N% 컷) | 절대 임계값은 촬영 기기·비트레이트에 따라 자리가 크게 달라져 재사용 불가 |
 | 2026-09-15 | **유사도 임계를 임베더별 권장값으로** (perceptual 0.88/0.95, dinov3 0.97/0.97) | 코사인 스케일이 임베더마다 다름(다른 장면 쌍 최대: pHash 0.247 vs DINOv3 0.941). pHash용 0.88을 DINOv3에 쓰면 감축률은 94.3%로 올랐지만 장소 2곳 유실. 과분할 쪽 오차를 택함 |
+| 2026-09-15 | **실영상 검증 입력: 직접 촬영 → 유튜브 URL 매니페스트** | 서비스 입력과 분포를 맞춤(재압축·편집 컷·편집 자막·색보정). 영상은 커밋하지 않고 URL·포맷·구간·정답·sha256만 남김 |
+| 2026-09-15 | 유튜브 검증 판정자 **EasyOCR** (합성 장면은 tesseract 유지) | 한글 장면 문자 스모크에서 오라클 tesseract 3/5 vs EasyOCR 5/5. 약한 판정자는 잘못된 ablation 결론을 만듦 |
+| 2026-09-15 | 판정 문자열 비교를 **자모 단위**로 | 기존 정규화가 한글을 지워 한글 정답이 조용히 전부 실패. 음절 단위는 을지다방→올지다방(0.75)도 탈락 |
 | 2026-09-14 | 벤치마크 입력은 **합성 영상** | 실제 YouTube 영상은 저작권·재현성 문제. `benchmarks/make_sample_video.py`로 누구나 같은 수치 재현. 단, 실영상 성능 보장 아님 → 실영상 검증은 별도 과제 |
 
 ---
@@ -120,8 +123,11 @@
   - [x] 고정 장면 유사도 임계 → 영상별 분포 기반 보정 (`max_shot_cut_rate`)
   - [x] 예산 컷 점수 순 → 장면 다양성 순 (k-center greedy)
   - [x] 보정이 문자 영역을 줄이면 구제본으로 되돌리는 가드 (`enhance_textness_drop_limit`)
-- [ ] **실사 촬영 영상 검증** — 직접 찍은 영상 + 손으로 만든 정답 목록으로 같은 하네스 실행
-      (`validate_recall.py --video ... --ground-truth ...`). 하네스는 준비됨, 입력만 필요
+- [x] **유튜브 영상 검증 준비** — `benchmarks/youtube/manifest.json`(후보 3편) + `youtube_fetch.py`
+      (다운로드·클립·콘택트 시트·챕터 기반 정답 초안) + `validate_recall.py --manifest`
+      (한글 자모 판정, EasyOCR 판정자, 간판/자막 분리, 저조도 auto, OCR 캐시). 테스트 38개 추가(117개)
+- [ ] **유튜브 영상 검증 실행** — 로컬에서 `youtube_fetch.py` → 정답 채워 커밋(결과 보기 전) →
+      `validate_recall.py --manifest benchmarks/youtube/manifest.json`
 - [x] DINOv3 vs pHash 비교 — 합성 영상에서 수행 (임계 보정 후 perceptual 53→6장, dinov3 53→5장, 장소 4/4)
 - [ ] DINOv3 vs pHash **실영상** 재방문 판정 비교 + 임베더별 임계 재조정
 - [ ] 문자 점수 정규화 상수 실사 분포로 재튜닝
@@ -188,15 +194,15 @@
 ## 진행 중
 
 **Phase 0 완료** (0-1 ~ 0-10). **비전 프론트엔드 구현 완료** — 합성 영상 기준 프레임 90.6% 감축,
-저조도 프레임 구제로 실내 장소 유실 해결. 실영상 검증은 미완.
+저조도 프레임 구제로 실내 장소 유실 해결. 유튜브 영상 검증 도구 준비 완료, 실행은 미완.
 
 ## 다음 작업
 
 1. **Phase 1-1**: `Video`, `Place` SQLAlchemy 모델(UUID PK, GeoAlchemy2 Geography) + Alembic 초기 마이그레이션(PostGIS extension) + GIST/FK 인덱스 → `alembic upgrade head` → RLS 마이그레이션 `supabase db push`. (복잡 feature → `/pdca plan` 고려)
-2. **비전 프론트엔드 실사 영상 검증** — 검증 하네스(`benchmarks/validate_recall.py`)는 완성됐고
-   합성 장면에서 오라클 동률(8/8)을 확인했다. 남은 것은 입력이다 — 직접 찍은 영상 2~3편에
-   정답 간판 목록(JSON)을 만들어 같은 하네스를 돌린다. 합성에서 결함 5개가 나왔으므로
-   실사에서도 나올 가능성이 높다
+2. **비전 프론트엔드 유튜브 영상 검증** — `cd apps/api && pip install -e '.[bench]'` →
+   `python benchmarks/youtube_fetch.py` → 콘택트 시트 보고 `benchmarks/youtube/truth/*.json` 채워
+   커밋 → `python benchmarks/validate_recall.py --manifest benchmarks/youtube/manifest.json`.
+   후보 영상이 조건(간판이 읽히는 장소, 15분 이하 구간)에 안 맞으면 같은 역할의 영상으로 교체
 
 ---
 
@@ -205,7 +211,7 @@
 - (Phase 3 진행 시) Gemini Vision의 한글 간판 인식률 — 실측 후 confidence threshold 조정
 - (Phase 3 진행 시) Place Resolver의 fuzzy match threshold — 실험으로 튜닝
 - (Phase 3 진행 시) yt-dlp가 YouTube의 봇 차단에 막힐 가능성 — 우회/캐싱 전략 필요할 수도
-- 비전 프론트엔드 수치는 **합성 영상 기준**. 실사 촬영 영상 성능은 미검증
+- 비전 프론트엔드 수치는 **합성 영상 기준**. 유튜브 영상 성능은 미검증
 - 샷 분할 임계는 이제 영상별로 보정되지만, **재방문 중복 임계는 여전히 고정값**
   (perceptual 0.95 / dinov3 0.97). 같은 가게를 다른 각도로 다시 찍은 컷 병합은 미검증
 - 전체 미니 ISP(디노이징·샤프닝)가 합성 장면에서 보존률에 기여하지 못했다(처리 시간 +45%).

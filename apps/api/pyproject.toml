@@ -41,6 +41,10 @@ vision-embed = [
     "transformers>=4.44.0",
     "pillow>=10.0.0",
 ]
+# 장소 보존률 검증의 장면 문자 판정자 (benchmarks/validate_recall.py --judge easyocr)
+bench = [
+    "easyocr>=1.7.1",
+]
 dev = [
     "pytest>=8.2.0",
     "pytest-asyncio>=0.23.6",

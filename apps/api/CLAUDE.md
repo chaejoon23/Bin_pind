@@ -41,7 +41,8 @@ apps/api/
 │   │       ├── dedup.py         # 샷 분할 + 중복 샷 제거
 │   │       └── select.py        # select_keyframes 오케스트레이터
 │   └── webhooks/                # Supabase Webhook 핸들러
-├── benchmarks/                  # 성능 측정 스크립트 (bench_keyframes.py 등)
+├── benchmarks/                  # 성능 측정 (bench_keyframes · validate_recall · youtube_fetch)
+│   └── youtube/                 # 유튜브 검증 매니페스트·정답 (영상은 .cache/, 커밋 안 함)
 ├── alembic/                     # 마이그레이션
 ├── tests/
 │   ├── unit/

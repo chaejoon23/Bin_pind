@@ -1,0 +1,31 @@
+{
+  "_how_to": "영상 파일은 커밋하지 않는다(.cache/). URL·포맷·구간·정답만 커밋한다. 자세한 규칙은 README.md",
+  "defaults": {
+    "format": "bv*[height<=720][vcodec^=avc1]/bv*[height<=720]",
+    "ocr_lang": "kor+eng",
+    "judge": "easyocr"
+  },
+  "videos": [
+    {
+      "key": "euljiro-night-walk",
+      "url": "https://www.youtube.com/watch?v=yArKEcqEYgk",
+      "role": "야간 저조도 · 연속 핸드헬드(짐벌) · 한글 네온 간판 밀집 · 편집 자막 거의 없음 → 미니 ISP 기여를 보는 영상",
+      "clip": null,
+      "truth": "truth/euljiro-night-walk.json"
+    },
+    {
+      "key": "euljiro-vlog",
+      "url": "https://www.youtube.com/watch?v=RkhW3kAMP2E",
+      "role": "편집 브이로그 · 컷 편집 · 상호 자막 · 실내 식당/소품샵(용강식당·그랜마캐비넷·마인띵스·광각도시) → Pind 실제 입력에 가장 가까운 영상, 자막 vs 간판 분리",
+      "clip": null,
+      "truth": "truth/euljiro-vlog.json"
+    },
+    {
+      "key": "seongsu-day",
+      "url": "https://www.youtube.com/watch?v=CqjUMq6BbDA",
+      "role": "주간 정상 노출 · 카페/맛집 하루 코스 → 저조도 없는 대조군, 장면 dedup·예산 분배를 보는 영상",
+      "clip": null,
+      "truth": "truth/seongsu-day.json"
+    }
+  ]
+}
