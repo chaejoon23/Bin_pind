@@ -41,7 +41,10 @@
       "split": "test",
       "url": "https://www.youtube.com/watch?v=nBok5fvA4-I",
       "role": "테스트 · 편집 브이로그 · 서울 익선동 한옥 골목 맛집·카페 11곳",
-      "clip": null,
+      "clip": [
+        "2:33",
+        "17:13"
+      ],
       "truth": "truth/ikseon-hanok.json"
     },
     {
@@ -49,7 +52,10 @@
       "split": "test",
       "url": "https://www.youtube.com/watch?v=ep5xKczmtIA",
       "role": "테스트 · 편집 브이로그 · 부산 전포·광안리·해운대 (다른 도시)",
-      "clip": null,
+      "clip": [
+        "8:21",
+        "23:01"
+      ],
       "truth": "truth/busan-jeonpo.json"
     },
     {
@@ -57,7 +63,10 @@
       "split": "test",
       "url": "https://www.youtube.com/watch?v=oNkl2gZjbH4",
       "role": "테스트 · 야간·실내 · 동대문 야시장 + 대형 매장",
-      "clip": null,
+      "clip": [
+        "0:00",
+        "14:40"
+      ],
       "truth": "truth/dongdaemun-night.json"
     }
   ],
