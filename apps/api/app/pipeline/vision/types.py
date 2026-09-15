@@ -122,8 +122,24 @@ class VisionFrontendConfig(BaseModel):
     long_edge_px: int = Field(default=1280, gt=0, description="디코딩 후 긴 변 리사이즈 목표")
 
     # --- 화질 게이트 ---
-    blur_reject_percentile: float = Field(
-        default=25.0, ge=0.0, lt=100.0, description="선명도 하위 N% 컷(영상별 상대 기준)"
+    blur_neighbor_ratio: float = Field(
+        default=0.6,
+        ge=0.0,
+        le=1.0,
+        description="시간상 이웃 프레임 선명도 중앙값의 이 비율 아래면 흔들린 프레임으로 본다."
+        " 0이면 상대 컷 비활성. 영상 전체 분포의 하위 N%를 자르는 방식은 '흔들린 프레임이"
+        " 항상 N% 존재한다'고 가정하는 셈이어서, 텍스처가 적은 장면을 통째로 버린다",
+    )
+    blur_neighbor_window_sec: float = Field(
+        default=3.0, gt=0.0, description="이웃 판단에 쓰는 시간 창(±초)"
+    )
+    blur_global_floor_ratio: float = Field(
+        default=0.05,
+        ge=0.0,
+        le=1.0,
+        description="영상 전체 선명도 중앙값의 이 비율 아래면 이웃과 무관하게 탈락."
+        " 이웃 기준만 쓰면 수 초간 이어지는 흔들림 구간은 '이웃도 똑같이 흐리므로' 통과한다."
+        " 영상 자신의 스케일로 잡은 절대 하한이 그걸 막는다",
     )
     min_sharpness_lapvar: float = Field(
         default=8.0, ge=0.0, description="절대 하한. 영상 전체가 흐릴 때 과도한 컷 방지용 하한선"
@@ -179,6 +195,14 @@ class VisionFrontendConfig(BaseModel):
     min_shot_gap_sec: float = Field(
         default=1.5, ge=0.0, description="샷 경계 최소 간격. 손떨림에 의한 과분할 방지"
     )
+    max_shot_cut_rate: float = Field(
+        default=0.25,
+        gt=0.0,
+        le=1.0,
+        description="샷 경계로 삼을 인접쌍의 최대 비율. `scene_similarity_threshold`를"
+        " 지정하지 않았을 때만 쓰이며, 이 비율을 넘지 않도록 임계를 영상별로 낮춘다."
+        " 고정 임계는 패닝이 많은 영상에서 장면을 과분할한다",
+    )
 
     # --- 선별 ---
     max_keyframes: int = Field(default=16, gt=0, description="VLM에 올릴 최대 프레임 수")
@@ -188,6 +212,14 @@ class VisionFrontendConfig(BaseModel):
 
     # --- 보정 ---
     enhance: bool = Field(default=True, description="미니 ISP 보정 적용 여부")
+    enhance_textness_drop_limit: float = Field(
+        default=0.03,
+        ge=0.0,
+        le=1.0,
+        description="보정 후 문자 영역 점수가 보정 전보다 이 값 이상 떨어지면 보정을 버리고"
+        " 값싼 구제본(또는 원본)을 내보낸다. 저조도에서 디노이징이 간판 획을 지우는 경우를"
+        " 막는 안전장치",
+    )
     jpeg_quality: int = Field(default=92, ge=1, le=100)
 
 

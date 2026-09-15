@@ -36,6 +36,52 @@ def adjacent_similarities(embeddings: Embedding) -> NDArray[np.float32]:
     return sims
 
 
+def adaptive_scene_threshold(
+    embeddings: Embedding,
+    *,
+    default_threshold: float,
+    max_cut_rate: float = 0.25,
+) -> float:
+    """영상 자신의 인접 유사도 분포에서 샷 경계 임계를 정한다.
+
+    고정 임계는 영상 사이를 넘어가지 못한다. 삼각대에 올린 영상은 인접 유사도가
+    0.99 근처에 몰리지만, 손에 들고 천천히 패닝하면 **같은 장소 안에서도** 인접
+    유사도가 0.75까지 떨어진다. 그 영상에 0.88을 적용하면 한 장소가 두세 개의 샷으로
+    쪼개지고, 예산이 그 쪼개진 샷들에 흩어져 다른 장소가 한 장도 못 남는다
+    (실측: 장소 8곳이 19개 샷으로 분할, 장소당 프레임 2.7장, 잃은 장소 2곳).
+
+    그래서 "몇 쌍을 경계로 볼지"를 정하고 임계를 거기서 역산한다. 인접 유사도의
+    하위 `max_cut_rate` 분위를 임계로 쓰면 경계 비율이 그 값을 넘지 않는다. 기본
+    임계보다 높아지는 경우는 쓰지 않으므로(min), 정적인 영상에서는 기존 동작이
+    그대로 유지되고 패닝이 많은 영상에서만 느슨해진다.
+
+    Args:
+        embeddings: (N, D) 시간순 L2 정규화 임베딩.
+        default_threshold: 임베더 권장 임계. 상한으로 쓴다.
+        max_cut_rate: 경계로 삼을 인접쌍의 최대 비율.
+
+    Returns:
+        실제로 쓸 유사도 임계.
+    """
+    sims = adjacent_similarities(embeddings)
+    if sims.size < 4:
+        return default_threshold
+
+    # method="lower"를 쓰는 이유: 보간된 분위값은 임계 바로 위의 값까지 컷으로 만들어
+    # 경계 비율이 max_cut_rate를 넘길 수 있다. 하위 값을 그대로 쓰면 상한이 보장된다.
+    quantile = float(np.percentile(sims.astype(np.float64), max_cut_rate * 100.0, method="lower"))
+    threshold = min(default_threshold, quantile)
+    if threshold < default_threshold:
+        logger.info(
+            "scene_threshold_adapted",
+            default=round(default_threshold, 3),
+            adapted=round(threshold, 3),
+            mean_adjacent_similarity=round(float(sims.mean()), 3),
+            max_cut_rate=max_cut_rate,
+        )
+    return threshold
+
+
 def segment_shots(
     embeddings: Embedding,
     timestamps: list[float],
@@ -138,3 +184,64 @@ def drop_near_duplicate_shots(
         threshold=similarity_threshold,
     )
     return kept
+
+
+def select_diverse_budget(
+    shot_embeddings: Embedding,
+    scores: list[float],
+    *,
+    budget: int,
+) -> list[int]:
+    """예산이 모자랄 때 **장면 다양성**을 기준으로 남길 샷을 고른다.
+
+    점수 상위 K개를 남기는 방식에는 구조적인 문제가 있다. 점수는 "이 프레임이 읽기
+    좋은가"만 보고 "이 장소가 이미 뽑혔는가"는 보지 않는다. 그래서 잘 찍힌 한 장소가
+    슬롯 여러 개를 먹고, 조금 덜 찍힌 다른 장소는 **한 장도 남지 않는다.** 실측에서
+    정상 노출 장소 한 곳이 이 경로로 통째로 사라졌고, 대신 다른 장소가 슬롯 3개를
+    차지했다 (`benchmarks/validate_recall.py`).
+
+    VLM 입력 예산의 목적은 "가장 예쁜 프레임 K장"이 아니라 "서로 다른 장소 K곳"이다.
+    그래서 k-center greedy(최원점 우선)로 고른다. 가장 점수가 높은 샷에서 시작해,
+    이미 고른 샷들과의 최대 유사도가 가장 낮은 샷을 반복해서 추가한다. 동점이면
+    점수가 높은 쪽을 쓴다.
+
+    Args:
+        shot_embeddings: (S, D) L2 정규화된 샷 대표 임베딩.
+        scores: 샷별 가독성 점수. 시작점과 동점 처리에만 쓴다.
+        budget: 남길 샷 수.
+
+    Returns:
+        남길 샷의 인덱스(오름차순).
+    """
+    total = len(shot_embeddings)
+    if total == 0:
+        return []
+    if budget >= total:
+        return list(range(total))
+    if budget <= 0:
+        return []
+
+    similarity = shot_embeddings @ shot_embeddings.T
+    seed = int(np.argmax(np.asarray(scores, dtype=np.float64)))
+    chosen = [seed]
+    # 이미 고른 집합과의 최대 유사도. 작을수록 새로운 장면이다.
+    closeness = similarity[seed].astype(np.float64).copy()
+    closeness[seed] = np.inf
+
+    while len(chosen) < budget:
+        # 최대 유사도가 가장 낮은 후보. 동점은 점수로 깬다.
+        best = min(
+            (index for index in range(total) if index not in chosen),
+            key=lambda index: (closeness[index], -scores[index]),
+        )
+        chosen.append(best)
+        closeness = np.minimum(closeness, similarity[best].astype(np.float64))
+        closeness[best] = np.inf
+
+    logger.info(
+        "budget_applied",
+        shots_in=total,
+        shots_out=len(chosen),
+        strategy="k-center-greedy",
+    )
+    return sorted(chosen)

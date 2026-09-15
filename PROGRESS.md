@@ -103,15 +103,26 @@
 - [x] `vision/textness.py` — MSER 기반 간판 문자 saliency (한글 세로쓰기 종횡비 포함)
 - [x] `vision/isp.py` — 미니 ISP (Shades-of-Gray WB → 적응 감마 → 조건부 NL-Means → LAB CLAHE → 조건부 언샤프) + `rescue_exposure` 경량 경로
 - [x] `vision/embed.py` — `Embedder` 프로토콜 / pHash+HSV 기본 / DINOv3 옵션 / `build_embedder("auto")` 폴백
-- [x] `vision/dedup.py` — 인접 유사도 샷 분할 + 전역 중복 샷 제거
+- [x] `vision/dedup.py` — 인접 유사도 샷 분할 + 전역 중복 샷 제거 + 영상별 임계 보정(`adaptive_scene_threshold`) + 예산 컷 다양성 선택(`select_diverse_budget`)
 - [x] `vision/select.py` — 오케스트레이터 `select_keyframes`
 - [x] `benchmarks/bench_keyframes.py` + `make_sample_video.py` — 단계별 감축 표 · 토큰 절감 · 전후 비교 이미지 · 프레임별 CSV
-- [x] 단위/엔드투엔드 테스트 63개, ruff(ANN) + mypy strict 통과
+- [x] `benchmarks/validate_recall.py` + `make_recall_scene.py` — **장소 보존률** 검증 (외부 OCR 판정, 오라클 대비, ablation 4종, 손실 원인 분류)
+- [x] 단위/엔드투엔드 테스트 79개, ruff(ANN) + mypy strict 통과
 - [x] 반영 시 검증 실패 수정 — opencv `<5` 고정, mypy no-untyped-call (aca77d7)
 - [x] `vision-embed` extra에 torchvision·pillow 추가, `auto`가 DINOv3 로드 실패(OSError)도 폴백 (c81dbb4)
 - [x] 임베더별 권장 유사도 임계 — DINOv3에 pHash 임계 적용 시 장소 유실 발견·수정 (테스트 68개)
-- [ ] **실영상 검증** — 실제 브이로그 10편으로 감축률뿐 아니라 **장소 추출 재현율** 측정
-- [x] DINOv3 vs pHash 비교 — 합성 영상에서 수행 (임계 보정 후 둘 다 53→5장, 장소 5/5)
+- [x] **장소 보존률 검증 하네스** — 감축률이 아니라 "무엇을 잃었는가"를 재는 방식으로 전환.
+      결함 5개 발견·수정 후 합성 장면에서 오라클 동률 달성 (6/8 → **8/8**, 프레임 16 → 12,
+      장소당 프레임 2.3 → 1.5). 상세: [docs/vision-frontend.md](docs/vision-frontend.md)
+  - [x] 전역 퍼센타일 블러 컷 → ±3초 이웃 중앙값 기준 (선명한 저텍스처 장면이 통째로 탈락했음)
+  - [x] 이어지는 흔들림용 절대 하한 추가 (영상 중앙값의 5%)
+  - [x] 구제 프레임/정상 노출 프레임 선명도 스케일 계층화 (CLAHE가 lapvar를 ~1.8배 올림)
+  - [x] 고정 장면 유사도 임계 → 영상별 분포 기반 보정 (`max_shot_cut_rate`)
+  - [x] 예산 컷 점수 순 → 장면 다양성 순 (k-center greedy)
+  - [x] 보정이 문자 영역을 줄이면 구제본으로 되돌리는 가드 (`enhance_textness_drop_limit`)
+- [ ] **실사 촬영 영상 검증** — 직접 찍은 영상 + 손으로 만든 정답 목록으로 같은 하네스 실행
+      (`validate_recall.py --video ... --ground-truth ...`). 하네스는 준비됨, 입력만 필요
+- [x] DINOv3 vs pHash 비교 — 합성 영상에서 수행 (임계 보정 후 perceptual 53→6장, dinov3 53→5장, 장소 4/4)
 - [ ] DINOv3 vs pHash **실영상** 재방문 판정 비교 + 임베더별 임계 재조정
 - [ ] 문자 점수 정규화 상수 실사 분포로 재튜닝
 - [ ] `analyze_vision`(Gemini Vision) 연결 — Phase 3-1에서
@@ -182,7 +193,10 @@
 ## 다음 작업
 
 1. **Phase 1-1**: `Video`, `Place` SQLAlchemy 모델(UUID PK, GeoAlchemy2 Geography) + Alembic 초기 마이그레이션(PostGIS extension) + GIST/FK 인덱스 → `alembic upgrade head` → RLS 마이그레이션 `supabase db push`. (복잡 feature → `/pdca plan` 고려)
-2. **비전 프론트엔드 실영상 검증** — 브이로그 10편, 정답 장소 목록을 직접 만들고 재현율 측정. 프레임을 줄여서 놓친 장소가 있는지가 진짜 지표
+2. **비전 프론트엔드 실사 영상 검증** — 검증 하네스(`benchmarks/validate_recall.py`)는 완성됐고
+   합성 장면에서 오라클 동률(8/8)을 확인했다. 남은 것은 입력이다 — 직접 찍은 영상 2~3편에
+   정답 간판 목록(JSON)을 만들어 같은 하네스를 돌린다. 합성에서 결함 5개가 나왔으므로
+   실사에서도 나올 가능성이 높다
 
 ---
 
@@ -191,8 +205,11 @@
 - (Phase 3 진행 시) Gemini Vision의 한글 간판 인식률 — 실측 후 confidence threshold 조정
 - (Phase 3 진행 시) Place Resolver의 fuzzy match threshold — 실험으로 튜닝
 - (Phase 3 진행 시) yt-dlp가 YouTube의 봇 차단에 막힐 가능성 — 우회/캐싱 전략 필요할 수도
-- 비전 프론트엔드 수치는 **합성 영상 기준**. 실영상 성능은 미검증
-- 샷 분할 임계 0.88은 경험값. 영상 종류(도심 워킹 / 실내 카페 / 야외)별 적정값이 다를 가능성
+- 비전 프론트엔드 수치는 **합성 영상 기준**. 실사 촬영 영상 성능은 미검증
+- 샷 분할 임계는 이제 영상별로 보정되지만, **재방문 중복 임계는 여전히 고정값**
+  (perceptual 0.95 / dinov3 0.97). 같은 가게를 다른 각도로 다시 찍은 컷 병합은 미검증
+- 전체 미니 ISP(디노이징·샤프닝)가 합성 장면에서 보존률에 기여하지 못했다(처리 시간 +45%).
+  실사에서도 그렇다면 기본값에서 빼는 것이 맞다
 - 문자 saliency 정규화 상수가 합성 영상에서 쉽게 포화 — 실사 분포로 재튜닝 필요
 - DINOv3 라이선스가 Apache/MIT가 아님 → 상용 배포 전 조건 확인 필요
 - 배포 이미지에 ffmpeg 포함 필요 (비전 프론트엔드가 외부 프로세스로 호출)

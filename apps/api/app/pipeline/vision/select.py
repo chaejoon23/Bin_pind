@@ -98,6 +98,102 @@ def _analyze_chunk(
     return analyses, embedder.embed(embed_inputs)
 
 
+# 상대 blur 임계를 따로 계산하기 위한 그룹 최소 크기. 이보다 작은 그룹은 표본이
+# 부족해 퍼센타일이 불안정하므로 전체 분포 기준으로 되돌린다.
+_MIN_STRATUM_SIZE = 4
+
+
+def _stratified_percentile(stats: list[FrameStats], percentile: float) -> dict[bool, float]:
+    """구제된 프레임과 그렇지 않은 프레임의 선명도 퍼센타일을 따로 계산한다.
+
+    표본이 `_MIN_STRATUM_SIZE` 미만인 그룹은 전체 분포 값으로 되돌린다.
+    """
+    everything = np.array(
+        [item.effective_metrics.sharpness_lapvar for item in stats], dtype=np.float64
+    )
+    fallback = float(np.percentile(everything, percentile))
+
+    values: dict[bool, float] = {}
+    for rescued in (False, True):
+        group = np.array(
+            [item.effective_metrics.sharpness_lapvar for item in stats if item.rescued is rescued],
+            dtype=np.float64,
+        )
+        values[rescued] = (
+            float(np.percentile(group, percentile)) if group.size >= _MIN_STRATUM_SIZE else fallback
+        )
+    return values
+
+
+# 이웃 기준 선명도를 계산할 때 필요한 최소 이웃 수. 이보다 적으면 구제 여부를 나누지 않는다.
+_MIN_NEIGHBORS = 3
+
+
+def keep_enhanced(
+    *, candidate_textness: float, reference_textness: float, drop_limit: float
+) -> bool:
+    """전체 보정 결과를 쓸지, 값싼 구제본으로 되돌릴지 판단한다.
+
+    보정은 대체로 글자 대비를 살리지만, 저조도에서는 디노이징 강도가 상한에 붙어
+    간판 획까지 뭉개는 경우가 있다. 그런 프레임이야말로 잃으면 안 되는 프레임이라
+    "보정이 문자 영역을 줄이면 보정을 쓰지 않는다"는 단방향 가드를 둔다.
+
+    Args:
+        candidate_textness: 전체 보정 후 문자 영역 점수.
+        reference_textness: 보정 전(구제본 또는 원본) 문자 영역 점수.
+        drop_limit: 허용 감소폭. 0이면 조금이라도 줄면 되돌린다.
+    """
+    return candidate_textness >= reference_textness - drop_limit
+
+
+def _local_blur_cuts(stats: list[FrameStats], config: VisionFrontendConfig) -> list[float]:
+    """프레임마다 **시간상 이웃**을 기준으로 선명도 하한을 계산한다.
+
+    처음 구현은 영상 전체 선명도 분포의 하위 N%를 잘랐다. 이 방식에는 두 가지 결함이
+    있고, 둘 다 실측에서 장소 손실로 나타났다(`benchmarks/validate_recall.py`).
+
+    1. **선명도는 흔들림만의 함수가 아니다.** 벽면이 단조로운 가게는 흔들리지 않아도
+       lapvar가 낮다. 전체 분포의 하위 25%를 자르면 "흔들린 프레임이 항상 25% 있다"고
+       가정하는 셈이어서, 흔들림이 전혀 없는 영상에서도 프레임의 1/4을 버린다. 실측에서
+       정상 노출 장소 한 곳이 이 경로로 **구간 전체가** 탈락했다(lapvar 13.1k, 컷 14.1k —
+       사람 눈에는 완전히 선명한 프레임).
+    2. **저조도 구제가 스케일을 바꾼다.** 구제는 CLAHE로 로컬 대비를 올리고 lapvar는
+       대비의 제곱에 비례해 커진다(실측 약 1.8배). 구제 프레임과 정상 노출 프레임을 한
+       분포에 섞으면 정상 노출 쪽이 하위권으로 밀린다.
+
+    흔들림은 **시간적 아티팩트**다. 같은 장면 안에서 앞뒤 프레임보다 유독 흐린 프레임이
+    흔들린 프레임이다. 그래서 기준을 전역 분포가 아니라 ±`blur_neighbor_window_sec`
+    이웃의 중앙값으로 잡는다. 중앙값이라 창 안에 흔들린 프레임이 한두 장 섞여도 기준이
+    끌려가지 않고, 장면 전체가 저텍스처면 기준도 같이 낮아져 아무것도 버리지 않는다.
+    이웃은 구제 여부가 같은 프레임만 쓴다(1의 이유). 표본이 모자라면 창 전체로 되돌린다.
+
+    Returns:
+        `stats`와 같은 길이의 프레임별 lapvar 하한.
+    """
+    if not stats:
+        return []
+
+    times = np.array([item.timestamp_sec for item in stats], dtype=np.float64)
+    lapvars = np.array(
+        [item.effective_metrics.sharpness_lapvar for item in stats], dtype=np.float64
+    )
+    rescued = np.array([item.rescued for item in stats], dtype=bool)
+
+    # 이웃 기준만 쓰면 수 초간 이어지는 흔들림 구간은 통과한다(이웃도 똑같이 흐리므로).
+    # 영상 전체 중앙값에서 잡은 약한 절대 하한을 함께 둬서 그 경우를 막는다. 해상도·내용에
+    # 따라 lapvar 스케일이 크게 달라지므로 고정값이 아니라 영상 자신의 스케일로 잡는다.
+    global_floor = config.blur_global_floor_ratio * float(np.median(lapvars))
+
+    cuts: list[float] = []
+    for position in range(len(stats)):
+        in_window = np.abs(times - times[position]) <= config.blur_neighbor_window_sec
+        same_stratum = in_window & (rescued == rescued[position])
+        pool = lapvars[same_stratum] if same_stratum.sum() >= _MIN_NEIGHBORS else lapvars[in_window]
+        local = config.blur_neighbor_ratio * float(np.median(pool))
+        cuts.append(max(local, global_floor))
+    return cuts
+
+
 def _quality_gate(
     stats: list[FrameStats], config: VisionFrontendConfig
 ) -> tuple[list[int], list[RejectedFrame]]:
@@ -106,10 +202,7 @@ def _quality_gate(
     Returns:
         (통과한 프레임의 리스트 내 위치, 탈락 기록)
     """
-    lapvars = np.array(
-        [item.effective_metrics.sharpness_lapvar for item in stats], dtype=np.float64
-    )
-    relative_cut = float(np.percentile(lapvars, config.blur_reject_percentile))
+    blur_cuts = _local_blur_cuts(stats, config)
     luma_min, luma_max = config.luma_range
 
     kept: list[int] = []
@@ -138,6 +231,7 @@ def _quality_gate(
                 )
             )
             continue
+        relative_cut = blur_cuts[position]
         too_blurry = (
             metrics.sharpness_lapvar < config.min_sharpness_lapvar
             or metrics.sharpness_lapvar < relative_cut
@@ -148,7 +242,10 @@ def _quality_gate(
                     frame_index=item.index,
                     timestamp_sec=item.timestamp_sec,
                     reason=RejectReason.BLUR,
-                    detail=f"lapvar={metrics.sharpness_lapvar:.2f} cut={relative_cut:.2f}",
+                    detail=(
+                        f"lapvar={metrics.sharpness_lapvar:.2f} 이웃기준={relative_cut:.2f}"
+                        f" ({'rescued' if item.rescued else 'normal'})"
+                    ),
                 )
             )
             continue
@@ -162,7 +259,7 @@ def _pick_shot_representatives(
     index_to_position: dict[int, int],
     stats: list[FrameStats],
     *,
-    sharpness_ref: float,
+    sharpness_refs: dict[bool, float],
     text_weight: float,
 ) -> list[tuple[int, int, float]]:
     """샷마다 점수가 가장 높은 프레임 1장을 고른다.
@@ -178,7 +275,7 @@ def _pick_shot_representatives(
             position = index_to_position[frame_index]
             score = quality.readability_score(
                 stats[position].effective_metrics,
-                sharpness_ref=sharpness_ref,
+                sharpness_ref=sharpness_refs[stats[position].rescued],
                 text_weight=text_weight,
             )
             if score > best_score:
@@ -210,6 +307,9 @@ def select_keyframes(
     base_cfg = config or VisionFrontendConfig()
     # 미지정 임계는 임베더 권장값으로 확정한다(유사도 스케일이 임베더마다 다름).
     # 결과의 config에도 실제 사용값이 남도록 확정값으로 교체해 둔다.
+    # 임계를 지정하지 않았으면 임베더 권장값에서 출발해, 게이트 통과 프레임의 인접
+    # 유사도 분포를 보고 영상별로 한 번 더 낮춘다(아래 4 pass 앞).
+    auto_scene_threshold = base_cfg.scene_similarity_threshold is None
     scene_threshold = (
         base_cfg.scene_similarity_threshold
         if base_cfg.scene_similarity_threshold is not None
@@ -272,7 +372,9 @@ def select_keyframes(
     lapvars = np.array(
         [item.effective_metrics.sharpness_lapvar for item in stats], dtype=np.float64
     )
-    sharpness_ref = float(np.percentile(lapvars, 90))
+    # 샤프닝 판정 기준도 같은 이유로 그룹별로 잡는다. 구제 프레임이 끌어올린 90퍼센타일을
+    # 정상 노출 프레임에 적용하면, 이미 선명한 프레임에 언샤프가 걸려 링잉만 늘어난다.
+    sharpness_refs = _stratified_percentile(stats, 90.0)
 
     # --- 2 pass: 화질 게이트 ---
     kept_positions, rejected = _quality_gate(stats, cfg)
@@ -282,6 +384,14 @@ def select_keyframes(
         rejected = [item for item in rejected if item.frame_index != stats[kept_positions[0]].index]
 
     # --- 3 pass: 샷 분할 ---
+    if auto_scene_threshold:
+        scene_threshold = dedup.adaptive_scene_threshold(
+            all_embeddings[kept_positions],
+            default_threshold=scene_threshold,
+            max_cut_rate=cfg.max_shot_cut_rate,
+        )
+        cfg = cfg.model_copy(update={"scene_similarity_threshold": scene_threshold})
+
     shots = dedup.segment_shots(
         all_embeddings[kept_positions],
         [stats[position].timestamp_sec for position in kept_positions],
@@ -295,7 +405,7 @@ def select_keyframes(
         shots,
         index_to_position,
         stats,
-        sharpness_ref=sharpness_ref,
+        sharpness_refs=sharpness_refs,
         text_weight=cfg.text_weight,
     )
 
@@ -320,10 +430,22 @@ def select_keyframes(
     picks = [picks[order] for order in surviving]
 
     # --- 5 pass: 예산 컷 ---
+    # 점수 상위 K개가 아니라 장면 다양성 기준으로 남긴다. 점수 순으로 자르면 잘 찍힌
+    # 한 장소가 슬롯을 여러 개 먹고 다른 장소가 한 장도 남지 않는다(dedup 모듈 주석 참고).
     if len(picks) > cfg.max_keyframes:
-        ranked = sorted(picks, key=lambda item: item[2], reverse=True)
-        chosen = ranked[: cfg.max_keyframes]
-        for _, position, _ in ranked[cfg.max_keyframes :]:
+        surviving_embeddings = np.vstack(
+            [all_embeddings[position] for _, position, _ in picks]
+        ).astype(np.float32)
+        keep_orders = set(
+            dedup.select_diverse_budget(
+                surviving_embeddings,
+                [score for _, _, score in picks],
+                budget=cfg.max_keyframes,
+            )
+        )
+        for order, (_, position, _) in enumerate(picks):
+            if order in keep_orders:
+                continue
             rejected.append(
                 RejectedFrame(
                     frame_index=stats[position].index,
@@ -332,34 +454,60 @@ def select_keyframes(
                     detail=f"max_keyframes={cfg.max_keyframes}",
                 )
             )
-        picks = sorted(chosen, key=lambda item: stats[item[1]].timestamp_sec)
+        picks = [picks[order] for order in sorted(keep_orders)]
 
     # --- 6 pass: 보정 후 저장 ---
     path_by_index = {index: path for index, (_, path) in enumerate(sampled)}
     keyframes: list[Keyframe] = []
     for shot_id, position, score in picks:
         item = stats[position]
-        image = decode.read_bgr(path_by_index[item.index])
-        metrics_after: QualityMetrics | None = None
+        original = decode.read_bgr(path_by_index[item.index])
+
+        # 보정을 끄더라도 구제된 프레임은 구제본을 내보내야 한다. 원본을 내보내면
+        # 게이트 통과 근거(구제 후 지표)와 실제 VLM 입력이 달라진다. 구제본 픽셀은
+        # 1 pass에서 버렸으므로 여기서 다시 만든다(WB+감마+CLAHE, 프레임당 수 ms).
+        if item.rescued:
+            baseline_image, _ = isp.rescue_exposure(original)
+            baseline_metrics: QualityMetrics | None = item.metrics_rescued
+        else:
+            baseline_image, baseline_metrics = original, None
+
+        image = baseline_image
+        metrics_after = baseline_metrics
         if cfg.enhance:
-            image, report = isp.enhance_for_vlm(
-                image,
+            candidate, report = isp.enhance_for_vlm(
+                original,
                 noise_sigma=item.effective_metrics.noise_sigma,
                 sharpness_lapvar=item.effective_metrics.sharpness_lapvar,
-                sharpness_ref=sharpness_ref,
+                sharpness_ref=sharpness_refs[item.rescued],
             )
-            metrics_after = quality.compute_metrics(image, textness=textness.textness(image).score)
-            logger.debug(
-                "frame_enhanced",
-                frame_index=item.index,
-                stages=report.stages,
-                gamma=round(report.gamma, 3),
+            candidate_metrics = quality.compute_metrics(
+                candidate, textness=textness.textness(candidate).score
             )
-        elif item.rescued:
-            # 보정을 끄더라도 구제된 프레임은 구제본을 내보내야 한다. 원본을 내보내면
-            # 게이트 통과 근거(구제 후 지표)와 실제 VLM 입력이 달라진다.
-            image, _ = isp.rescue_exposure(image)
-            metrics_after = item.metrics_rescued
+            # 보정이 문자 영역을 지우면 보정을 버린다. 저조도에서 디노이징 강도가
+            # 상한에 붙으면 간판 획까지 뭉개지는데, 그 프레임이야말로 잃으면 안 되는
+            # 프레임이다(실측: 저조도 장소 1곳이 전체 보정 때문에만 사라졌다).
+            reference_textness = item.effective_metrics.textness
+            if keep_enhanced(
+                candidate_textness=candidate_metrics.textness,
+                reference_textness=reference_textness,
+                drop_limit=cfg.enhance_textness_drop_limit,
+            ):
+                image, metrics_after = candidate, candidate_metrics
+                logger.debug(
+                    "frame_enhanced",
+                    frame_index=item.index,
+                    stages=report.stages,
+                    gamma=round(report.gamma, 3),
+                )
+            else:
+                logger.info(
+                    "enhance_rejected",
+                    frame_index=item.index,
+                    stages=report.stages,
+                    textness_before=round(reference_textness, 3),
+                    textness_after=round(candidate_metrics.textness, 3),
+                )
         out_path = out_dir / f"kf_{item.index:06d}_t{item.timestamp_sec:07.2f}.jpg"
         decode.write_jpeg(image, out_path, quality=cfg.jpeg_quality)
         keyframes.append(
