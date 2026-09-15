@@ -62,6 +62,12 @@ class FrameStats(BaseModel):
     metrics_rescued: QualityMetrics | None = Field(
         default=None, description="구제 보정 후 지표. rescued=False면 None"
     )
+    text_boxes: int | None = Field(
+        default=None,
+        ge=0,
+        description="학습된 문자 검출기의 박스 수. selection_strategy='text_nms' 에서 게이트를"
+        " 통과한 프레임에만 채운다",
+    )
 
     @property
     def effective_metrics(self) -> QualityMetrics:
@@ -206,6 +212,21 @@ class VisionFrontendConfig(BaseModel):
 
     # --- 선별 ---
     max_keyframes: int = Field(default=16, gt=0, description="VLM에 올릴 최대 프레임 수")
+    selection_strategy: Literal["diverse", "text_nms"] = Field(
+        default="diverse",
+        description="'diverse' = 샷 분할 → 샷별 대표 → 중복 샷 제거 → 시각 다양성(k-center)"
+        " 예산 컷."
+        " 'text_nms' = 게이트 통과 프레임을 학습된 문자 검출기(PP-OCRv4 DB) 박스 수 순으로 보며"
+        " 시간 간격을 두고 고른다. 유튜브 개발 세트에서 diverse 는 무작위 수준이었다"
+        " (docs/vision-frontend.md). 테스트 세트 확인 전까지 기본값은 diverse",
+    )
+    text_nms_gap_ratio: float = Field(
+        default=0.5,
+        gt=0.0,
+        le=1.0,
+        description="text_nms 의 최소 시간 간격 = 이 비율 × (샘플 수 / max_keyframes)."
+        " 사전 등록 값이므로 테스트 세트 비교 전에 바꾸지 말 것",
+    )
     text_weight: float = Field(
         default=0.35, ge=0.0, le=1.0, description="대표 프레임 점수에서 간판 텍스트 가중치"
     )

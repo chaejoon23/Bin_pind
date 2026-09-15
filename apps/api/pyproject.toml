@@ -41,6 +41,11 @@ vision-embed = [
     "transformers>=4.44.0",
     "pillow>=10.0.0",
 ]
+# 프레임 선별의 학습된 문자 검출기 (selection_strategy="text_nms"). 모델은
+# `python -m app.pipeline.vision.textdet --fetch` 로 PyPI 휠에서 꺼내 캐시한다.
+vision-textdet = [
+    "onnxruntime>=1.17.0",
+]
 # 장소 보존률 검증의 장면 문자 판정자 (benchmarks/validate_recall.py --judge easyocr)
 bench = [
     "easyocr>=1.7.1",

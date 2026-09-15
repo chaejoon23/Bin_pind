@@ -15,6 +15,20 @@ python benchmarks/validate_recall.py \
   --manifest benchmarks/youtube/manifest.json --out-dir recall_out/youtube   # 3) 평가
 ```
 
+## 개발 세트와 테스트 세트
+
+`manifest.json` 의 `split` 이 `dev` 인 3편은 **프레임 선별 방법을 고르는 데 이미 썼다** (실측 4/26 → 원인 분해 →
+`text_nms` 선택). 방법이 나아졌는지는 `split: test` 영상으로만 판단한다. 비교 설정·지표·채택 규칙은
+[`PREREGISTRATION.md`](PREREGISTRATION.md)에 결과를 보기 전에 고정했다.
+
+```bash
+pip install -e '.[bench,vision-textdet]' && python -m app.pipeline.vision.textdet --fetch
+python benchmarks/youtube_fetch.py --split test          # 테스트 영상 + 콘택트 시트
+# → 제외 기준 확인 · 구간 결정 · 정답 라벨 커밋 (결과 보기 전)
+python benchmarks/validate_recall.py --manifest benchmarks/youtube/manifest.json --split test \
+  --ablations full,text-det --embedder perceptual --full-table --out-dir recall_out/youtube-test
+```
+
 ## 파일
 
 | 경로 | 커밋 | 내용 |

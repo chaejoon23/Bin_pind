@@ -58,6 +58,7 @@ from recall_truth import (  # noqa: E402
     VideoSpec,
     format_time,
     load_manifest,
+    select_specs,
     truth_template,
 )
 
@@ -313,6 +314,7 @@ def main() -> None:
     parser = argparse.ArgumentParser(description="유튜브 검증 영상 준비")
     parser.add_argument("--manifest", type=Path, default=DEFAULT_MANIFEST)
     parser.add_argument("--only", default="", help="이 key 들만 (쉼표 구분)")
+    parser.add_argument("--split", default="", help="dev | test 만 (매니페스트)")
     parser.add_argument("--sheet-interval", type=float, default=3.0, help="썸네일 간격(초)")
     parser.add_argument("--no-sheets", action="store_true")
     args = parser.parse_args()
@@ -321,11 +323,10 @@ def main() -> None:
         specs = load_manifest(args.manifest)
     except TruthError as exc:
         raise SystemExit(f"매니페스트 오류: {exc}") from exc
-    only = {key.strip() for key in args.only.split(",") if key.strip()}
-    if only:
-        specs = [spec for spec in specs if spec.key in only]
-        if not specs:
-            raise SystemExit(f"--only 와 일치하는 key 가 없습니다: {sorted(only)}")
+    try:
+        specs = select_specs(specs, only=args.only, split=args.split)
+    except TruthError as exc:
+        raise SystemExit(str(exc)) from exc
 
     cache_root = args.manifest.parent / ".cache"
     for spec in specs:

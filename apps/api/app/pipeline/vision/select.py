@@ -5,10 +5,13 @@
     디코딩(ffmpeg, 균일 샘플링)
       → 프레임별 화질 지표 + 간판 텍스트 점수 + 저조도 구제 + 임베딩  [청크 스트리밍]
       → 화질 게이트 (복원해도 못 읽는 프레임만 탈락)
-      → 샷 분할 (인접 임베딩 유사도)
-      → 샷별 대표 1장 (readability_score 최대)
-      → 전역 중복 샷 제거 (같은 가게 재방문 컷 병합)
-      → 예산 컷 (max_keyframes)
+      → [selection_strategy="diverse"]
+          샷 분할 (인접 임베딩 유사도)
+          → 샷별 대표 1장 (readability_score 최대)
+          → 전역 중복 샷 제거 (같은 가게 재방문 컷 병합)
+          → 예산 컷 (시각 다양성, max_keyframes)
+        [selection_strategy="text_nms"]
+          게이트 통과 프레임에 학습된 문자 검출기 → 박스 수 순 + 시간 간격 (max_keyframes)
       → 미니 ISP 보정 후 JPEG 저장
 
 저조도 구제가 화질 게이트보다 **앞에** 있는 것이 의도된 순서다. 게이트를 먼저 두면 실내에서
@@ -30,8 +33,9 @@ import numpy as np
 import structlog
 from numpy.typing import NDArray
 
-from app.pipeline.vision import decode, dedup, isp, quality, textness
+from app.pipeline.vision import budget, decode, dedup, isp, quality, textness
 from app.pipeline.vision.embed import Embedder, PerceptualEmbedder
+from app.pipeline.vision.textdet import DbTextDetector, TextDetector
 from app.pipeline.vision.types import (
     FrameStats,
     Keyframe,
@@ -285,12 +289,60 @@ def _pick_shot_representatives(
     return picks
 
 
+def _pick_by_text_detection(
+    kept_positions: list[int],
+    stats: list[FrameStats],
+    sampled: list[tuple[float, Path]],
+    cfg: VisionFrontendConfig,
+    detector: TextDetector,
+) -> tuple[list[tuple[int, int, float]], dict[int, int]]:
+    """게이트 통과 프레임에 문자 검출기를 돌려 박스 수 순 + 시간 간격으로 고른다.
+
+    검출은 **게이트가 판정한 것과 같은 이미지**에 한다 — 저조도 구제를 받은 프레임은 구제본
+    (WB+감마+CLAHE), 나머지는 원본. 원본에 검출기를 돌리면 어두운 간판이 박스 0개가 되어, 구제로
+    게이트를 통과시킨 프레임을 선별에서 다시 버리게 된다. 무거운 보정(디노이즈·언샤프)은 고른
+    뒤에만 적용한다.
+
+    Returns:
+        ((순번, 프레임 리스트 내 위치, 박스 수) 리스트, {위치: 박스 수}).
+    """
+    boxes_by_position: dict[int, int] = {}
+    for position in kept_positions:
+        image = decode.read_bgr(sampled[position][1])
+        if stats[position].rescued:
+            image, _ = isp.rescue_exposure(image)
+        boxes_by_position[position] = detector.detect(image).box_count
+
+    min_gap = budget.temporal_gap_frames(len(stats), cfg.max_keyframes, cfg.text_nms_gap_ratio)
+    chosen = budget.select_text_nms(
+        [stats[position].index for position in kept_positions],
+        [float(boxes_by_position[position]) for position in kept_positions],
+        budget=cfg.max_keyframes,
+        min_gap=min_gap,
+    )
+    position_of = {stats[position].index: position for position in kept_positions}
+    picks = [
+        (order, position_of[index], float(boxes_by_position[position_of[index]]))
+        for order, index in enumerate(chosen)
+    ]
+    logger.info(
+        "text_nms_selected",
+        detector=detector.name,
+        candidates=len(kept_positions),
+        min_gap=min_gap,
+        selected=len(picks),
+        zero_box_selected=sum(1 for _, _, score in picks if score == 0),
+    )
+    return picks, boxes_by_position
+
+
 def select_keyframes(
     video_path: Path,
     work_dir: Path,
     *,
     config: VisionFrontendConfig | None = None,
     embedder: Embedder | None = None,
+    text_detector: TextDetector | None = None,
 ) -> KeyframeSelection:
     """영상에서 VLM에 올릴 키프레임을 고른다.
 
@@ -299,6 +351,8 @@ def select_keyframes(
         work_dir: 중간 프레임과 결과 JPEG를 쓸 디렉토리. 호출자가 생성/정리한다.
         config: 선별 설정. None이면 기본값.
         embedder: 프레임 임베더. None이면 `PerceptualEmbedder`(추가 의존성 없음).
+        text_detector: `selection_strategy="text_nms"` 에서 쓰는 문자 검출기. None이면
+            기본 모델 경로로 만든다(없으면 `TextDetectorUnavailable`).
 
     Returns:
         선별 결과와 집계. `keyframes[i].path`가 VLM에 넣을 JPEG 경로다.
@@ -383,78 +437,90 @@ def select_keyframes(
         kept_positions = [int(np.argmax(lapvars))]
         rejected = [item for item in rejected if item.frame_index != stats[kept_positions[0]].index]
 
-    # --- 3 pass: 샷 분할 ---
-    if auto_scene_threshold:
-        scene_threshold = dedup.adaptive_scene_threshold(
-            all_embeddings[kept_positions],
-            default_threshold=scene_threshold,
-            max_cut_rate=cfg.max_shot_cut_rate,
+    shots: list[ShotSegment] = []
+    if cfg.selection_strategy == "text_nms":
+        picks, boxes_by_position = _pick_by_text_detection(
+            kept_positions, stats, sampled, cfg, text_detector or DbTextDetector()
         )
-        cfg = cfg.model_copy(update={"scene_similarity_threshold": scene_threshold})
-
-    shots = dedup.segment_shots(
-        all_embeddings[kept_positions],
-        [stats[position].timestamp_sec for position in kept_positions],
-        [stats[position].index for position in kept_positions],
-        similarity_threshold=scene_threshold,
-        min_shot_gap_sec=cfg.min_shot_gap_sec,
-    )
-    index_to_position = {stats[position].index: position for position in kept_positions}
-
-    picks = _pick_shot_representatives(
-        shots,
-        index_to_position,
-        stats,
-        sharpness_refs=sharpness_refs,
-        text_weight=cfg.text_weight,
-    )
-
-    # --- 4 pass: 전역 중복 샷 제거 ---
-    representative_embeddings = np.vstack(
-        [all_embeddings[position] for _, position, _ in picks]
-    ).astype(np.float32)
-    surviving = dedup.drop_near_duplicate_shots(
-        representative_embeddings, similarity_threshold=duplicate_threshold
-    )
-    dropped_as_duplicate = set(range(len(picks))) - set(surviving)
-    for order in sorted(dropped_as_duplicate):
-        _, position, _ = picks[order]
-        rejected.append(
-            RejectedFrame(
-                frame_index=stats[position].index,
-                timestamp_sec=stats[position].timestamp_sec,
-                reason=RejectReason.DUPLICATE,
-                detail=f"앞선 샷과 유사도 >= {duplicate_threshold}",
+        stats = [
+            item.model_copy(update={"text_boxes": boxes_by_position[position]})
+            if position in boxes_by_position
+            else item
+            for position, item in enumerate(stats)
+        ]
+    else:
+        # --- 3 pass: 샷 분할 ---
+        if auto_scene_threshold:
+            scene_threshold = dedup.adaptive_scene_threshold(
+                all_embeddings[kept_positions],
+                default_threshold=scene_threshold,
+                max_cut_rate=cfg.max_shot_cut_rate,
             )
-        )
-    picks = [picks[order] for order in surviving]
+            cfg = cfg.model_copy(update={"scene_similarity_threshold": scene_threshold})
 
-    # --- 5 pass: 예산 컷 ---
-    # 점수 상위 K개가 아니라 장면 다양성 기준으로 남긴다. 점수 순으로 자르면 잘 찍힌
-    # 한 장소가 슬롯을 여러 개 먹고 다른 장소가 한 장도 남지 않는다(dedup 모듈 주석 참고).
-    if len(picks) > cfg.max_keyframes:
-        surviving_embeddings = np.vstack(
+        shots = dedup.segment_shots(
+            all_embeddings[kept_positions],
+            [stats[position].timestamp_sec for position in kept_positions],
+            [stats[position].index for position in kept_positions],
+            similarity_threshold=scene_threshold,
+            min_shot_gap_sec=cfg.min_shot_gap_sec,
+        )
+        index_to_position = {stats[position].index: position for position in kept_positions}
+
+        picks = _pick_shot_representatives(
+            shots,
+            index_to_position,
+            stats,
+            sharpness_refs=sharpness_refs,
+            text_weight=cfg.text_weight,
+        )
+
+        # --- 4 pass: 전역 중복 샷 제거 ---
+        representative_embeddings = np.vstack(
             [all_embeddings[position] for _, position, _ in picks]
         ).astype(np.float32)
-        keep_orders = set(
-            dedup.select_diverse_budget(
-                surviving_embeddings,
-                [score for _, _, score in picks],
-                budget=cfg.max_keyframes,
-            )
+        surviving = dedup.drop_near_duplicate_shots(
+            representative_embeddings, similarity_threshold=duplicate_threshold
         )
-        for order, (_, position, _) in enumerate(picks):
-            if order in keep_orders:
-                continue
+        dropped_as_duplicate = set(range(len(picks))) - set(surviving)
+        for order in sorted(dropped_as_duplicate):
+            _, position, _ = picks[order]
             rejected.append(
                 RejectedFrame(
                     frame_index=stats[position].index,
                     timestamp_sec=stats[position].timestamp_sec,
-                    reason=RejectReason.BUDGET,
-                    detail=f"max_keyframes={cfg.max_keyframes}",
+                    reason=RejectReason.DUPLICATE,
+                    detail=f"앞선 샷과 유사도 >= {duplicate_threshold}",
                 )
             )
-        picks = [picks[order] for order in sorted(keep_orders)]
+        picks = [picks[order] for order in surviving]
+
+        # --- 5 pass: 예산 컷 ---
+        # 점수 상위 K개가 아니라 장면 다양성 기준으로 남긴다. 점수 순으로 자르면 잘 찍힌
+        # 한 장소가 슬롯을 여러 개 먹고 다른 장소가 한 장도 남지 않는다(dedup 모듈 주석 참고).
+        if len(picks) > cfg.max_keyframes:
+            surviving_embeddings = np.vstack(
+                [all_embeddings[position] for _, position, _ in picks]
+            ).astype(np.float32)
+            keep_orders = set(
+                dedup.select_diverse_budget(
+                    surviving_embeddings,
+                    [score for _, _, score in picks],
+                    budget=cfg.max_keyframes,
+                )
+            )
+            for order, (_, position, _) in enumerate(picks):
+                if order in keep_orders:
+                    continue
+                rejected.append(
+                    RejectedFrame(
+                        frame_index=stats[position].index,
+                        timestamp_sec=stats[position].timestamp_sec,
+                        reason=RejectReason.BUDGET,
+                        detail=f"max_keyframes={cfg.max_keyframes}",
+                    )
+                )
+            picks = [picks[order] for order in sorted(keep_orders)]
 
     # --- 6 pass: 보정 후 저장 ---
     path_by_index = {index: path for index, (_, path) in enumerate(sampled)}

@@ -37,6 +37,12 @@ from app.pipeline.vision.isp import (
 )
 from app.pipeline.vision.quality import compute_metrics, readability_score
 from app.pipeline.vision.select import select_keyframes
+from app.pipeline.vision.textdet import (
+    DbTextDetector,
+    TextDetection,
+    TextDetector,
+    TextDetectorUnavailable,
+)
 from app.pipeline.vision.textness import TextnessResult, textness
 from app.pipeline.vision.types import (
     FrameStats,
@@ -52,6 +58,7 @@ from app.pipeline.vision.types import (
 
 __all__ = [
     "DEFAULT_DINOV3_MODEL",
+    "DbTextDetector",
     "Dinov3Embedder",
     "Embedder",
     "EnhanceConfig",
@@ -65,6 +72,9 @@ __all__ = [
     "RejectedFrame",
     "SelectionSummary",
     "ShotSegment",
+    "TextDetection",
+    "TextDetector",
+    "TextDetectorUnavailable",
     "TextnessResult",
     "VisionFrontendConfig",
     "build_embedder",

@@ -70,8 +70,11 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from app.pipeline.vision import (  # noqa: E402
+    DbTextDetector,
     Embedder,
     KeyframeSelection,
+    RejectReason,
+    TextDetectorUnavailable,
     VisionFrontendConfig,
     build_embedder,
     select_keyframes,
@@ -85,6 +88,7 @@ from recall_truth import (  # noqa: E402
     load_manifest,
     load_truth,
     matched_sources,
+    select_specs,
 )
 
 # 여러 psm 모드의 출력을 합집합으로 쓴다. 한 모드만 쓰면 사람이 읽을 수 있는 간판도
@@ -249,6 +253,12 @@ class OracleResult:
     recovered_by_sign: set[str] = field(default_factory=set)
     luma_by_place: dict[str, list[float]] = field(default_factory=dict)
     sampled_frames: int = 0
+    # --full-table 일 때만: 샘플 인덱스 → 그 프레임에서 읽힌 장소 (전체 / 간판)
+    frame_table: dict[int, set[str]] | None = None
+    frame_table_sign: dict[int, set[str]] | None = None
+    # 무작위 K장 기댓값: 장소별 "한 번이라도 뽑힐 확률" (전체 / 간판)
+    random_hit: dict[str, float] | None = None
+    random_hit_sign: dict[str, float] | None = None
 
 
 def _place_of(places: list[PlaceTruth], timestamp_sec: float) -> PlaceTruth | None:
@@ -347,8 +357,12 @@ def scan_oracle(
     sample_fps: float,
     threshold: float,
     ocr: OcrEngine,
+    exhaustive: bool = False,
 ) -> OracleResult:
     """선별 없이 모든 샘플 프레임을 OCR한 상한선 + 장소 구간의 휘도.
+
+    `exhaustive=True` 이면 장소가 이미 읽혔어도 구간 안 프레임을 전부 OCR해 프레임 단위 표를
+    남긴다. 무작위 선별 기댓값처럼 "어떤 프레임 집합을 골랐다면"을 OCR 재실행 없이 계산할 때 쓴다.
 
     파이프라인이 고른 프레임의 보존률은 이 값과 비교해야 의미가 있다. 오라클이 놓친
     장소는 애초에 영상에서 읽을 수 없는 장소이고, 파이프라인 탓이 아니다.
@@ -361,9 +375,12 @@ def scan_oracle(
     step = max(int(round(fps / sample_fps)), 1)
 
     result = OracleResult(luma_by_place={place.place_id: [] for place in places})
+    if exhaustive:
+        result.frame_table, result.frame_table_sign = {}, {}
     index = 0
     while capture.grab():
         if index % step == 0:
+            sample_index = result.sampled_frames
             result.sampled_frames += 1
             place = _place_of(places, index / fps)
             if place is not None:
@@ -371,12 +388,58 @@ def scan_oracle(
                 if ok:
                     gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
                     result.luma_by_place[place.place_id].append(float(np.mean(gray)) / 255.0)
-                    if _needs_more(place, result.recovered, result.recovered_by_sign):
+                    if exhaustive or _needs_more(place, result.recovered, result.recovered_by_sign):
                         sources = matched_sources(ocr.read(frame), place.texts, threshold=threshold)
                         _record(place, sources, result.recovered, result.recovered_by_sign)
+                        if result.frame_table is not None and result.frame_table_sign is not None:
+                            if sources:
+                                result.frame_table[sample_index] = {place.place_id}
+                            if "sign" in sources:
+                                result.frame_table_sign[sample_index] = {place.place_id}
         index += 1
     capture.release()
     return result
+
+
+RANDOM_DRAWS = 2000
+
+_GATE_REASONS = {RejectReason.BLUR, RejectReason.UNDEREXPOSED, RejectReason.OVEREXPOSED}
+
+
+@cache
+def _text_detector() -> DbTextDetector:
+    try:
+        return DbTextDetector()
+    except TextDetectorUnavailable as exc:
+        raise SystemExit(str(exc)) from exc
+
+
+def random_expectation(
+    table: dict[int, set[str]],
+    allowed: list[int],
+    budget: int,
+    place_ids: list[str],
+    *,
+    seed: int = 20260915,
+) -> dict[str, float]:
+    """게이트 통과 프레임에서 `budget` 장을 무작위로 뽑았을 때 장소별 적중 확률 (몬테카를로).
+
+    "선별기가 무작위보다 나은가"를 영상마다 같은 조건(같은 게이트, 같은 예산)으로 비교하려는
+    기준선이다. 장소 수 기댓값은 이 확률의 합이다.
+    """
+    rng = np.random.default_rng(seed)
+    hits = dict.fromkeys(place_ids, 0)
+    if not allowed:
+        return dict.fromkeys(place_ids, 0.0)
+    k = min(budget, len(allowed))
+    pool = np.asarray(allowed)
+    for _ in range(RANDOM_DRAWS):
+        found: set[str] = set()
+        for sample in rng.choice(pool, size=k, replace=False):
+            found |= table.get(int(sample), set())
+        for pid in found:
+            hits[pid] += 1
+    return {pid: hits[pid] / RANDOM_DRAWS for pid in place_ids}
 
 
 def resolve_dark(places: list[PlaceTruth], oracle: OracleResult) -> dict[str, bool]:
@@ -398,6 +461,8 @@ ABLATIONS: dict[str, dict[str, object]] = {
     "no-enhance": {"enhance": False},
     # 저조도 구제를 끈다 = 화질 게이트가 어두운 프레임을 먼저 버리는 예전 순서 재현.
     "no-rescue": {"rescue_luma_below": 0.0, "rescue_clip_low_above": 1.0},
+    # 학습된 문자 검출기 박스 수 순 + 시간 간격 (selection_strategy="text_nms").
+    "text-det": {"selection_strategy": "text_nms"},
     # 중복 제거를 끈다. 프레임 수가 몇 배로 늘어나는지 = dedup이 버는 비용.
     "no-dedup": {
         "scene_similarity_threshold": 1.0,
@@ -416,11 +481,19 @@ def _ratio(recovered: set[str], subset: set[str]) -> str:
     return f"{len(recovered & subset)}/{len(subset)}"
 
 
+def _expected(hit: dict[str, float], subset: set[str]) -> str:
+    if not subset:
+        return "—"
+    return f"{sum(hit[pid] for pid in subset):.1f}/{len(subset)}"
+
+
 def format_table(
     results: list[RunResult],
     places: list[PlaceTruth],
     oracle: OracleResult,
     dark: dict[str, bool],
+    *,
+    budget: int = 0,
 ) -> str:
     all_ids = {place.place_id for place in places}
     dark_ids = {pid for pid in all_ids if dark[pid]}
@@ -443,6 +516,14 @@ def format_table(
         f"{_ratio(oracle.recovered, all_ids)} |{oracle_sign} "
         f"{_ratio(oracle.recovered, bright_ids)} | {_ratio(oracle.recovered, dark_ids)} | — | — |"
     )
+    if oracle.random_hit is not None and oracle.random_hit_sign is not None:
+        hit, hit_sign = oracle.random_hit, oracle.random_hit_sign
+        sign_cell = f" {_expected(hit_sign, sign_ids)} |" if show_sign else ""
+        lines.append(
+            f"| _무작위 (기댓값)_ | {budget} | "
+            f"{_expected(hit, all_ids)} |{sign_cell} "
+            f"{_expected(hit, bright_ids)} | {_expected(hit, dark_ids)} | — | — |"
+        )
     for result in results:
         counted = [n for n in result.frames_per_place.values() if n > 0]
         per_place = sum(counted) / len(counted) if counted else 0.0
@@ -499,6 +580,7 @@ class VideoReport:
     oracle: OracleResult
     results: list[RunResult]
     markdown: str
+    max_keyframes: int = 0
 
 
 def run_video(
@@ -515,6 +597,7 @@ def run_video(
     ocr: OcrEngine,
     clip_start: float = 0.0,
     preamble: str = "",
+    full_table: bool = False,
 ) -> VideoReport:
     out_dir.mkdir(parents=True, exist_ok=True)
     if len(places) > max_keyframes:
@@ -525,6 +608,7 @@ def run_video(
     print(f"\n=== {title} · 장소 {len(places)}개 · 임베더 {embedder.name} · 판정 {ocr.label}")
 
     results: list[RunResult] = []
+    gate_rejected_by_label: dict[str, set[int]] = {}
     for label in labels:
         fields: dict[str, object] = {"sample_fps": sample_fps, "max_keyframes": max_keyframes}
         fields.update(ABLATIONS[label])
@@ -535,7 +619,14 @@ def run_video(
         work_dir.mkdir(parents=True)
 
         print(f"[{label}] 실행 중...")
-        selection = select_keyframes(video_path, work_dir, config=config, embedder=embedder)
+        detector = _text_detector() if config.selection_strategy == "text_nms" else None
+        selection = select_keyframes(
+            video_path, work_dir, config=config, embedder=embedder, text_detector=detector
+        )
+        if not gate_rejected_by_label:
+            gate_rejected_by_label[label] = {
+                frame.frame_index for frame in selection.rejected if frame.reason in _GATE_REASONS
+            }
         result = evaluate(selection, places, label=label, threshold=threshold, ocr=ocr)
         print(
             f"  선별 {result.selected_frames}장 / 디코딩 {result.decoded_frames}장 · "
@@ -544,7 +635,37 @@ def run_video(
         results.append(result)
 
     print("오라클(선별 없음) 계산 중...")
-    oracle = scan_oracle(video_path, places, sample_fps=sample_fps, threshold=threshold, ocr=ocr)
+    oracle = scan_oracle(
+        video_path,
+        places,
+        sample_fps=sample_fps,
+        threshold=threshold,
+        ocr=ocr,
+        exhaustive=full_table,
+    )
+    if oracle.frame_table is not None and oracle.frame_table_sign is not None:
+        rejected = next(iter(gate_rejected_by_label.values()), set())
+        allowed = [index for index in range(oracle.sampled_frames) if index not in rejected]
+        place_ids = [place.place_id for place in places]
+        oracle.random_hit = random_expectation(
+            oracle.frame_table, allowed, max_keyframes, place_ids
+        )
+        oracle.random_hit_sign = random_expectation(
+            oracle.frame_table_sign, allowed, max_keyframes, place_ids
+        )
+        table_path = out_dir / "frame_table.json"
+        table_path.write_text(
+            json.dumps(
+                {
+                    "sampled_frames": oracle.sampled_frames,
+                    "gate_rejected": sorted(rejected),
+                    "any": {str(k): sorted(v) for k, v in sorted(oracle.frame_table.items())},
+                    "sign": {str(k): sorted(v) for k, v in sorted(oracle.frame_table_sign.items())},
+                },
+                ensure_ascii=False,
+            ),
+            encoding="utf-8",
+        )
     dark = resolve_dark(places, oracle)
 
     dark_note = (
@@ -556,7 +677,7 @@ def run_video(
     if preamble:
         sections.append(preamble)
     sections += [
-        format_table(results, places, oracle, dark),
+        format_table(results, places, oracle, dark, budget=max_keyframes),
         "### 잃은 장소",
         format_losses(results, places, oracle, dark, clip_start=clip_start),
         f"판정: 외부 OCR({ocr.label}), "
@@ -566,7 +687,7 @@ def run_video(
     markdown = "\n\n".join(sections)
     (out_dir / "recall_report.md").write_text(markdown + "\n", encoding="utf-8")
     print(f"\n{markdown}\n")
-    return VideoReport(title, places, dark, oracle, results, markdown)
+    return VideoReport(title, places, dark, oracle, results, markdown, max_keyframes)
 
 
 def format_summary(reports: list[VideoReport], labels: list[str]) -> str:
@@ -593,7 +714,28 @@ def format_summary(reports: list[VideoReport], labels: list[str]) -> str:
     universe = {f"{n}:{p.place_id}" for n, r in enumerate(reports) for p in r.places}
     dark_u = {f"{n}:{pid}" for n, r in enumerate(reports) for pid, d in r.dark.items() if d}
     sign_u = {f"{n}:{p.place_id}" for n, r in enumerate(reports) for p in r.places if p.has_sign}
-    for pick in ["oracle", *labels]:
+    rows = ["oracle", *labels]
+    if all(r.oracle.random_hit is not None for r in reports):
+        rows.insert(1, "random")
+    for pick in rows:
+        if pick == "random":
+            hit = {
+                f"{n}:{pid}": p
+                for n, r in enumerate(reports)
+                for pid, p in (r.oracle.random_hit or {}).items()
+            }
+            hit_sign = {
+                f"{n}:{pid}": p
+                for n, r in enumerate(reports)
+                for pid, p in (r.oracle.random_hit_sign or {}).items()
+            }
+            frames = sum(r.max_keyframes for r in reports)
+            lines.append(
+                f"| _무작위 (기댓값)_ | {frames} | {_expected(hit, universe)} | "
+                f"{_expected(hit_sign, sign_u)} | {_expected(hit, universe - dark_u)} | "
+                f"{_expected(hit, dark_u)} |"
+            )
+            continue
         frames, any_ids, sign_ids = gather(pick)
         name = "_오라클 (선별 없음)_" if pick == "oracle" else pick
         lines.append(
@@ -611,6 +753,7 @@ def main() -> None:
     parser.add_argument("--scene-dir", type=Path, help="make_recall_scene.py 의 출력 폴더")
     parser.add_argument("--manifest", type=Path, help="유튜브 매니페스트 (youtube_fetch.py)")
     parser.add_argument("--only", default="", help="매니페스트 중 이 key 들만 (쉼표 구분)")
+    parser.add_argument("--split", default="", help="dev | test 만 (매니페스트)")
     parser.add_argument("--video", type=Path, help="영상 파일")
     parser.add_argument("--ground-truth", type=Path, help="정답 JSON")
     parser.add_argument("--out-dir", type=Path, default=Path("recall_out"))
@@ -628,6 +771,11 @@ def main() -> None:
         default=None,
         choices=JUDGES,
         help="판정 OCR. 기본: 합성·단일 영상 tesseract, 매니페스트는 영상별 설정(easyocr)",
+    )
+    parser.add_argument(
+        "--full-table",
+        action="store_true",
+        help="오라클에서 구간 안 프레임을 전부 OCR해 프레임 표와 무작위 선별 기댓값을 낸다 (느림)",
     )
     parser.add_argument("--no-ocr-cache", action="store_true", help="OCR 캐시를 쓰지 않는다")
     parser.add_argument(
@@ -651,6 +799,7 @@ def main() -> None:
         "sample_fps": args.sample_fps,
         "max_keyframes": args.max_keyframes,
         "threshold": args.match_threshold,
+        "full_table": args.full_table,
     }
 
     if args.manifest is not None:
@@ -697,11 +846,10 @@ def run_manifest(args: argparse.Namespace, out_dir: Path, common: dict[str, obje
         specs = load_manifest(manifest_path)
     except TruthError as exc:
         raise SystemExit(f"매니페스트 오류: {exc}") from exc
-    only = {key.strip() for key in args.only.split(",") if key.strip()}
-    if only:
-        specs = [spec for spec in specs if spec.key in only]
-        if not specs:
-            raise SystemExit(f"--only 와 일치하는 key 가 없습니다: {sorted(only)}")
+    try:
+        specs = select_specs(specs, only=args.only, split=args.split)
+    except TruthError as exc:
+        raise SystemExit(str(exc)) from exc
 
     cache_root = manifest_path.parent / ".cache"
     reports: list[VideoReport] = []

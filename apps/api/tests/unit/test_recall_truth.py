@@ -20,6 +20,7 @@ from recall_truth import (  # noqa: E402
     parse_manifest,
     parse_time,
     parse_truth,
+    select_specs,
     text_is_readable,
     truth_template,
 )
@@ -213,3 +214,36 @@ def test_committed_manifest_is_valid() -> None:
     )
     assert len(specs) >= 2
     assert all(spec.youtube_id for spec in specs)
+
+
+def test_split_filter(tmp_path: Path) -> None:
+    specs = parse_manifest(
+        {
+            "videos": [
+                {"key": "a", "url": "https://youtu.be/yArKEcqEYgk"},
+                {"key": "b", "url": "https://youtu.be/CqjUMq6BbDA", "split": "test"},
+            ]
+        },
+        base_dir=tmp_path,
+    )
+    assert specs[0].split == "dev"  # 기본값
+    assert [s.key for s in select_specs(specs, split="test")] == ["b"]
+    assert [s.key for s in select_specs(specs, only="a,b")] == ["a", "b"]
+    with pytest.raises(TruthError):
+        select_specs(specs, only="a", split="test")
+    with pytest.raises(TruthError):
+        parse_manifest(
+            {"videos": [{"key": "c", "url": "https://youtu.be/CqjUMq6BbDA", "split": "val"}]},
+            base_dir=tmp_path,
+        )
+
+
+def test_committed_manifest_has_test_split() -> None:
+    manifest = Path(__file__).resolve().parents[2] / "benchmarks" / "youtube" / "manifest.json"
+    specs = parse_manifest(
+        json.loads(manifest.read_text(encoding="utf-8")), base_dir=manifest.parent
+    )
+    dev = {spec.youtube_id for spec in specs if spec.split == "dev"}
+    test = {spec.youtube_id for spec in specs if spec.split == "test"}
+    assert len(dev) == 3 and len(test) == 3
+    assert not dev & test

@@ -317,6 +317,7 @@ class VideoSpec:
     ocr_lang: str
     judge: str
     sha256: str | None
+    split: str = "dev"
 
     @property
     def youtube_id(self) -> str | None:
@@ -340,6 +341,29 @@ _KEY = re.compile(r"^[a-z0-9][a-z0-9-]*$")
 def extract_youtube_id(url: str) -> str | None:
     match = _YOUTUBE_ID.search(url)
     return match.group(1) if match else None
+
+
+SPLITS = ("dev", "test")
+
+
+def _parse_split(raw: object, key: str) -> str:
+    """개발(dev) = 방법을 고르는 데 쓴 영상, 테스트(test) = 사전 등록 후 한 번만 평가하는 영상."""
+    if raw not in SPLITS:
+        raise TruthError(f"{key}: split 은 {SPLITS} 중 하나 ({raw!r})")
+    return str(raw)
+
+
+def select_specs(specs: list[VideoSpec], *, only: str = "", split: str = "") -> list[VideoSpec]:
+    """--only(쉼표 구분 key) / --split 필터."""
+    keys = {key.strip() for key in only.split(",") if key.strip()}
+    chosen = [spec for spec in specs if (not keys or spec.key in keys)]
+    if split:
+        if split not in SPLITS:
+            raise TruthError(f"--split 은 {SPLITS} 중 하나")
+        chosen = [spec for spec in chosen if spec.split == split]
+    if not chosen:
+        raise TruthError(f"조건에 맞는 영상이 없습니다 (only={sorted(keys)}, split={split!r})")
+    return chosen
 
 
 def parse_manifest(payload: dict[str, Any], *, base_dir: Path) -> list[VideoSpec]:
@@ -381,6 +405,7 @@ def parse_manifest(payload: dict[str, Any], *, base_dir: Path) -> list[VideoSpec
                 format=str(raw.get("format", defaults.get("format", DEFAULT_FORMAT))),
                 ocr_lang=str(raw.get("ocr_lang", defaults.get("ocr_lang", DEFAULT_OCR_LANG))),
                 judge=str(raw.get("judge", defaults.get("judge", DEFAULT_JUDGE))),
+                split=_parse_split(raw.get("split", "dev"), key),
                 sha256=raw.get("sha256"),
             )
         )

@@ -14,14 +14,16 @@
         "12:00",
         "22:00"
       ],
-      "truth": "truth/euljiro-night-walk.json"
+      "truth": "truth/euljiro-night-walk.json",
+      "split": "dev"
     },
     {
       "key": "euljiro-vlog",
       "url": "https://www.youtube.com/watch?v=RkhW3kAMP2E",
       "role": "편집 브이로그 · 컷 편집 · 상호 타이틀 카드/자막 · 실내 식당/소품샵(광각도시·도우또·용강식당·그랜마캐비넷·마인띵스). 전체 14:42(884장, 디코딩 상한 900 이내) → Pind 실제 입력에 가장 가까움, 자막 vs 간판 분리",
       "clip": null,
-      "truth": "truth/euljiro-vlog.json"
+      "truth": "truth/euljiro-vlog.json",
+      "split": "dev"
     },
     {
       "key": "seongsu-day",
@@ -31,7 +33,37 @@
         "8:10",
         "14:42"
       ],
-      "truth": "truth/seongsu-day.json"
+      "truth": "truth/seongsu-day.json",
+      "split": "dev"
+    },
+    {
+      "key": "ikseon-hanok",
+      "split": "test",
+      "url": "https://www.youtube.com/watch?v=nBok5fvA4-I",
+      "role": "테스트 · 편집 브이로그 · 서울 익선동 한옥 골목 맛집·카페 11곳",
+      "clip": null,
+      "truth": "truth/ikseon-hanok.json"
+    },
+    {
+      "key": "busan-jeonpo",
+      "split": "test",
+      "url": "https://www.youtube.com/watch?v=ep5xKczmtIA",
+      "role": "테스트 · 편집 브이로그 · 부산 전포·광안리·해운대 (다른 도시)",
+      "clip": null,
+      "truth": "truth/busan-jeonpo.json"
+    },
+    {
+      "key": "dongdaemun-night",
+      "split": "test",
+      "url": "https://www.youtube.com/watch?v=oNkl2gZjbH4",
+      "role": "테스트 · 야간·실내 · 동대문 야시장 + 대형 매장",
+      "clip": null,
+      "truth": "truth/dongdaemun-night.json"
     }
-  ]
+  ],
+  "_test_alternates": {
+    "ikseon-hanok": "https://www.youtube.com/watch?v=aDIIWNHoNUY",
+    "busan-jeonpo": "https://www.youtube.com/watch?v=JnPyFFbFdo8",
+    "dongdaemun-night": "https://www.youtube.com/watch?v=fUKOVrvxE9g"
+  }
 }
