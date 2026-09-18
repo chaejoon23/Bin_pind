@@ -40,3 +40,8 @@ supabase/.temp/
 
 ## bkit (로컬 플러그인 상태 — 커밋하지 않음)
 .bkit/
+
+## 벤치마크 산출물 (프레임·JPEG·OCR 캐시 — 수 GB)
+apps/api/recall_out/
+apps/api/bench_out/
+apps/api/scene_out/

@@ -83,9 +83,11 @@ sRGB 도메인 미니 ISP: 화이트밸런스(Shades-of-Gray) → 적응 감마 
 > 장소를 잃지 않는다"는 뜻이고, 실제 브이로그에서의 성능을 보장하지는 않는다. 실제 입력인
 > 유튜브 영상에서는 개발 3편 **4/26 (오라클 19)**, 사전 등록한 테스트 3편 **3/35 (오라클 28, 무작위 16장 기댓값 3.9)** 으로,
 > 실영상에서 프레임 선별이 무작위 수준이다. 개발 세트에서 고른 대안(`text_nms`)도 테스트에서 이득이 재현되지 않아 채택하지
-> 않았다. 경위와 수치는 docs/vision-frontend.md.
+> 않았다. 예산 K 를 늘리는 쪽도 계산으로 기각했다(오라클은 13장이면 포화, 무작위는 전체 프레임을 넣어도 못 따라온다).
+> 경위와 수치는 docs/vision-frontend.md.
 
 **설계 결정과 실패 기록(시간순) → [docs/vision-frontend-decisions.md](docs/vision-frontend-decisions.md)**
+**예산 K–회수 곡선 → [docs/vision-frontend-budget.md](docs/vision-frontend-budget.md)**
 **구현 설명과 측정값 전체 → [docs/vision-frontend.md](docs/vision-frontend.md)**
 
 ```bash
@@ -165,7 +167,8 @@ DB는 Supabase Cloud Session Pooler에 직접 붙는다(로컬 Docker 불필요)
 
 | 문서 | 내용 |
 |---|---|
-| [docs/vision-frontend-decisions.md](docs/vision-frontend-decisions.md) | 비전 프론트엔드 설계 결정 17개 · 틀린 판단과 발견 경로 · 교훈 · 현재 상태 |
+| [docs/vision-frontend-decisions.md](docs/vision-frontend-decisions.md) | 비전 프론트엔드 설계 결정 18개 · 틀린 판단과 발견 경로 · 교훈 · 현재 상태 |
+| [docs/vision-frontend-budget.md](docs/vision-frontend-budget.md) | 키프레임 예산 K 와 장소 회수 곡선 — 예산을 늘려도 안 되는 이유 |
 | [docs/vision-frontend.md](docs/vision-frontend.md) | 비전 프론트엔드 구현 설명 · 장소 보존률 검증 · 유튜브 실측 · 사전 등록 테스트 |
 | [PROGRESS.md](PROGRESS.md) | Phase별 진행 상황과 ADR |
 | [CLAUDE.md](CLAUDE.md) | 레포 전체 컨벤션 |

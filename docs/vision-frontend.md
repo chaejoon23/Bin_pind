@@ -3,6 +3,7 @@
 > `apps/api/app/pipeline/vision/` · Phase 3 AI 파이프라인의 B안 입력단
 >
 > **먼저 읽을 것:** [설계 결정과 실패 기록](vision-frontend-decisions.md) — 무엇이 틀렸고 어떻게 알았는지 시간순 요약.
+> 예산 K 와 회수의 관계는 [예산 곡선](vision-frontend-budget.md).
 > 이 문서는 구현 설명과 측정 전체다. **현재 결론: 합성 장면 8/8 이지만 유튜브 실영상에서 선별은 무작위 수준
 > (개발 4/26, 사전 등록 테스트 3/35)이며, 대안 `text_nms` 는 테스트에서 기각됐다.**
 
