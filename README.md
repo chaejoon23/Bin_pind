@@ -154,8 +154,9 @@ DB는 Supabase Cloud Session Pooler에 직접 붙는다(로컬 Docker 불필요)
 ## 진행 상황
 
 - [x] **Phase 0** 모노레포 부트스트랩 (0-1 ~ 0-10)
-- [x] **비전 프론트엔드** — 화질 지표 · 미니 ISP · 문자 saliency · 장면 dedup · 벤치마크 (테스트 79개)
-- [ ] **Phase 1** DB 모델 & DTO
+- [x] **비전 프론트엔드** — 화질 지표 · 미니 ISP · 문자 saliency · 장면 dedup · 벤치마크
+- [x] **Phase 1** DB 모델 & DTO — videos·places 스키마(PostGIS geography, RLS+컬럼 권한),
+      Pydantic DTO, mock 라우터, OpenAPI→TS 타입 생성 (테스트 210개)
 - [ ] **Phase 2** 프론트엔드 뼈대
 - [ ] **Phase 3** AI 파이프라인 본체 (Gemini 연동 · 후보 resolve · orchestrator)
 - [ ] **Phase 4** Realtime & UI 완성

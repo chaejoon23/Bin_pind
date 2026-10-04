@@ -51,7 +51,7 @@ test-web:
 gen-types:
 	@echo "→ Exporting OpenAPI spec..."
 	curl -sf http://localhost:8000/openapi.json -o $(OPENAPI) \
-		|| (cd $(API_DIR) && $(VBIN)/python -c "import json; from app.main import app; print(json.dumps(app.openapi()))" > ../../$(OPENAPI))
+		|| (cd $(API_DIR) && $(VBIN)/python -c "import json; from app.main import app; print(json.dumps(app.openapi(), ensure_ascii=False, indent=2))" > ../../$(OPENAPI))
 	@echo "→ Generating TypeScript types..."
 	pnpm --filter=@pind/shared-types generate
 	@echo "✓ Types written to $(TYPES_OUT)"

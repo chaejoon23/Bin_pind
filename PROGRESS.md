@@ -1,6 +1,6 @@
 # Pind 진행 현황
 
-**Last updated**: 2026-09-15
+**Last updated**: 2026-10-04
 
 > 세션 시작 시 이 파일을 먼저 읽고, 종료 시 갱신할 것.
 > Phase별 체크리스트의 완료 항목은 `- [x]`로 표시하고 commit hash를 옆에 적는다.
@@ -37,6 +37,9 @@
 | 2026-09-14 | 장면 임베더는 `Embedder` 프로토콜로 교체 가능하게 | 기본 pHash+HSV(의존성 0), 옵션 DINOv3 ViT-S/16(`[vision-embed]` extra). 컷 전환은 고전 방식으로 충분하고 서버 비용이 싸다. 재방문 판정 비교 실험은 미실시 |
 | 2026-09-14 | 선명도 임계는 영상별 **상대** 기준(90퍼센타일 정규화 + 하위 N% 컷) | 절대 임계값은 촬영 기기·비트레이트에 따라 자리가 크게 달라져 재사용 불가 |
 | 2026-09-15 | **유사도 임계를 임베더별 권장값으로** (perceptual 0.88/0.95, dinov3 0.97/0.97) | 코사인 스케일이 임베더마다 다름(다른 장면 쌍 최대: pHash 0.247 vs DINOv3 0.941). pHash용 0.88을 DINOv3에 쓰면 감축률은 94.3%로 올랐지만 장소 2곳 유실. 과분할 쪽 오차를 택함 |
+| 2026-10-04 | **좌표 변환을 `app/schemas/geo.py` 한 모듈로** | PostGIS POINT 는 (경도, 위도), Leaflet·Google Maps 는 (위도, 경도). 서울(37.5, 127.0)처럼 두 값이 모두 유효 범위면 뒤집혀도 예외가 없고 핀만 중국 동부에 꽂힌다 → 변환 지점을 하나로 모으고 왕복 테스트로 고정. WKB 파싱은 직접 하지 않고 `shapely`(geoalchemy2 권장 조합) 추가 |
+| 2026-10-04 | **`POST /api/v1/videos/resolve` — URL→영상 ID 추출을 API 로 노출** | `UNIQUE (user_id, youtube_id)` 때문에 INSERT 하는 쪽(= 클라이언트)이 ID 를 알아야 한다. web·extension 양쪽에 regex 를 복사하면 한쪽만 고쳐지는 날이 온다(단축 URL·`/shorts/`·`/live/` 가 계속 늘어난다) → 규칙은 `schemas/video.py` 한 곳, 왕복 한 번을 감수 |
+| 2026-10-04 | **목 응답에 지오코딩 실패 장소를 섞음** | 좌표가 전부 채워진 더미는 거짓 안심을 준다. `lat`/`lng` 가 null 인 항목을 처음부터 넣어 Phase 2 지도 구현이 그 경우를 다루게 강제 |
 | 2026-10-04 | **`videos.user_id` 에 DB 레벨 FK 를 걸지 않음** | `auth` 스키마는 Supabase 소유라 Alembic 이 소유권을 주장하면 안 되고, 로컬 Postgres(docker-compose)에는 그 스키마가 없어 마이그레이션이 깨진다. 소유권 강제는 RLS(`auth.uid() = user_id`) + FastAPI JWT 검증. 인덱스(`videos_user_id_idx`)는 RLS 가 모든 질의에 user_id 조건을 붙이므로 필수 |
 | 2026-10-04 | **`UNIQUE (user_id, youtube_id)`** | 같은 사용자가 같은 영상을 두 번 넣으면 새 행이 아니라 기존 행 재사용 → Database Webhook 중복 발화에 멱등, 실패 재시도는 같은 행의 status 되돌리기. 대가: **클라이언트가 URL→11자 ID 추출을 담당**해야 함(Phase 2 web·extension 공용 유틸 필요) |
 | 2026-10-04 | **RLS(행) + GRANT(컬럼) 2층 권한** | RLS 는 컬럼을 제한하지 못한다. videos 소유자 UPDATE 정책을 열어두면 사용자가 자기 행의 `status`·`cost_usd` 를 덮어써 파이프라인과 비용 집계가 신뢰하는 값이 오염된다 → UPDATE 정책 제거 + `GRANT INSERT (user_id, youtube_url, youtube_id)`, `GRANT SELECT, DELETE`. 제목 수정 기능이 생기면 그때 컬럼 열거 GRANT 와 함께 추가 |
@@ -73,7 +76,7 @@
   - 워크스페이스 deps 연결: `@pind/shared-types`, `@pind/ui` / 런타임 deps: supabase-js, TanStack Query, zustand, leaflet
   - `components/`, `hooks/`, `stores/` 디렉토리 배치
   - `pnpm verify`(lint+typecheck) + `next build` 전체 통과
-  - ⚠️ 임시조치: `packages/shared-types/src/api.ts` placeholder stub(1-2에서 gen:types가 덮어씀), `@pind/ui` lint는 no-op placeholder(0-8에서 eslint 설정)
+  - ⚠️ 임시조치: `packages/shared-types/src/api.ts` placeholder stub(1-2에서 gen-types가 덮어씀), `@pind/ui` lint는 no-op placeholder(0-8에서 eslint 설정)
 - [x] 0-7. `apps/extension` 부트스트랩 완료
   - Plasmo 0.90.5 + React 18 (popup.tsx 진입점, tsconfig는 `plasmo/templates/tsconfig.base` 확장, alias `~*`)
   - package.json 정정: `@pind/extension` (create-plasmo가 example template "with-popup"+`plasmo: workspace:*`를 잡아 수동 교체)
@@ -177,10 +180,27 @@
       문장 단위로 비교(나열 순서는 정규화). 열거형↔CHECK 제약 일치, geom 타입·SRID,
       GIST 인덱스 1개, FK CASCADE·이름, user_id 에 DB FK 없음까지 검사.
       마이그레이션에 컬럼을 하나 더 넣어 실제로 실패하는지 확인함
-- [ ] 1-2. Pydantic 스키마 (`VideoRead/Create`, `PlaceRead/Create`)
-- [ ] 1-2. `GET /api/v1/places` mock 라우터 (더미 JSON)
-- [ ] 1-2. `make gen:types` 파이프라인 (openapi.json → `packages/shared-types/api.ts`)
-- [ ] 1-2. 단위 테스트: Pydantic 직렬화 (geom ↔ lat/lng 변환)
+- [x] 1-2. Pydantic 스키마 — `app/schemas/{geo,pagination,place,video}.py`.
+      `PlaceRead` 는 `geom`(WKB) 을 `lat`/`lng` 로 펼쳐 내보내고 WKB 는 노출하지 않는다.
+      좌표 변환은 `geo.py` 한 모듈에만 둔다(PostGIS 는 (경도,위도), 지도 API 는
+      (위도,경도) — 서울처럼 둘 다 유효 범위면 뒤집혀도 예외 없이 핀만 엉뚱한 곳에
+      꽂힌다). 커서 페이지네이션 `Page[T]`(offset 금지, 커서는 불투명 base64)
+- [x] 1-2. `GET /api/v1/places` mock 라우터 + `/api/v1/videos` —
+      본문은 더미지만 `response_model` 과 OpenAPI 는 실제 스키마. 더미에 **지오코딩
+      실패 장소(좌표 null)를 하나 섞어** 지도 쪽이 처음부터 그 경우를 다루게 함.
+      `POST /videos/resolve` 추가: URL→11자 ID 추출 규칙을 `schemas/video.py` 한 곳에
+      두고 노출(web·extension 양쪽에 regex 를 복사하면 한쪽만 고쳐지는 날이 온다)
+- [x] 1-2. `make gen-types` 파이프라인 — `packages/shared-types/src/api.ts` placeholder
+      교체 완료(383줄, `PlaceRead`·`VideoRead`·`VideoStatus`·`SourceModality` 포함),
+      `pnpm --filter=@pind/shared-types typecheck` 통과. `openapi.json` 은 중간 산출물로
+      gitignore. Makefile 폴백에 `ensure_ascii=False` 추가(한글 설명이 \uXXXX 로 깨짐).
+      문서의 `make gen:types` 표기를 실제 타깃명 `make gen-types` 로 정정
+- [x] 1-2. 단위 테스트 52개 추가 (총 210개) — `test_schemas.py`(37): 좌표 왕복·반쪽
+      좌표 거부·범위 검증·EWKB hex 해석·URL 9종 동일 ID·ID 불일치 거부·커서 왕복.
+      `test_routers_mock.py`(15): 응답 모양, lat/lng 노출·geom 비노출, 좌표 null 사례,
+      잘못된 커서는 400(500 아님), 모든 라우트가 `/api/v1` + tags 보유
+- [ ] 1-2. (보류) `make verify` 의 `pnpm lint`/`typecheck` 전체 — 클라우드 컨테이너에
+      web·extension `node_modules` 가 없어 미실행. shared-types 만 확인함. 맥에서 확인 필요
 
 ## Phase 2: Frontend 뼈대
 

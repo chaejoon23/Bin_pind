@@ -8,6 +8,7 @@ from app.exceptions import (
     VideoNotFound,
     WebhookAuthError,
 )
+from app.routers import places_router, videos_router
 from app.settings import settings
 
 log = structlog.get_logger()
@@ -45,7 +46,9 @@ async def webhook_auth_handler(_: Request, exc: WebhookAuthError) -> JSONRespons
 
 
 # ── Routers ───────────────────────────────────────────────────────────────────
-# routers will be registered here as they are built in Phase 1+
+
+app.include_router(videos_router)
+app.include_router(places_router)
 
 
 @app.get("/health", tags=["meta"])

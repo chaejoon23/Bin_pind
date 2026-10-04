@@ -32,7 +32,7 @@ pind/
 │   └── ui/              # next/* 의존 없는 순수 React 컴포넌트 (web/extension 공유)
 ├── supabase/            # 마이그레이션(RLS/함수), seed
 ├── docker-compose.yml   # 로컬 Postgres+PostGIS
-├── Makefile             # make verify, make gen:types, make dev
+├── Makefile             # make verify, make gen-types, make dev
 ├── CLAUDE.md            # 이 파일
 └── PROGRESS.md          # 진행 현황
 ```
@@ -43,7 +43,7 @@ pind/
 
 1. **세션 시작**: `PROGRESS.md`를 먼저 읽고 현재 상태 파악.
 2. **세션 종료**: 작업한 내용을 `PROGRESS.md`에 반영하고 commit.
-3. **타입은 자동 생성**: TS 인터페이스 손으로 작성 금지. Pydantic 변경 → `make gen:types`.
+3. **타입은 자동 생성**: TS 인터페이스 손으로 작성 금지. Pydantic 변경 → `make gen-types`.
 4. **변경 후 검증**: 코드 수정 후 반드시 `make verify` 실행. 실패 시 수정 후 재실행.
 5. **컨텍스트 분리**: 한 세션에서 백엔드와 프론트를 동시에 깊게 다루지 말 것. 작은 수직 슬라이스만 예외.
 6. **commit 단위**: 한 commit = 한 논리적 변경. 마이그레이션 + 모델 + 스키마는 같은 commit 가능.
