@@ -37,6 +37,10 @@
 | 2026-09-14 | 장면 임베더는 `Embedder` 프로토콜로 교체 가능하게 | 기본 pHash+HSV(의존성 0), 옵션 DINOv3 ViT-S/16(`[vision-embed]` extra). 컷 전환은 고전 방식으로 충분하고 서버 비용이 싸다. 재방문 판정 비교 실험은 미실시 |
 | 2026-09-14 | 선명도 임계는 영상별 **상대** 기준(90퍼센타일 정규화 + 하위 N% 컷) | 절대 임계값은 촬영 기기·비트레이트에 따라 자리가 크게 달라져 재사용 불가 |
 | 2026-09-15 | **유사도 임계를 임베더별 권장값으로** (perceptual 0.88/0.95, dinov3 0.97/0.97) | 코사인 스케일이 임베더마다 다름(다른 장면 쌍 최대: pHash 0.247 vs DINOv3 0.941). pHash용 0.88을 DINOv3에 쓰면 감축률은 94.3%로 올랐지만 장소 2곳 유실. 과분할 쪽 오차를 택함 |
+| 2026-10-04 | **`videos.user_id` 에 DB 레벨 FK 를 걸지 않음** | `auth` 스키마는 Supabase 소유라 Alembic 이 소유권을 주장하면 안 되고, 로컬 Postgres(docker-compose)에는 그 스키마가 없어 마이그레이션이 깨진다. 소유권 강제는 RLS(`auth.uid() = user_id`) + FastAPI JWT 검증. 인덱스(`videos_user_id_idx`)는 RLS 가 모든 질의에 user_id 조건을 붙이므로 필수 |
+| 2026-10-04 | **`UNIQUE (user_id, youtube_id)`** | 같은 사용자가 같은 영상을 두 번 넣으면 새 행이 아니라 기존 행 재사용 → Database Webhook 중복 발화에 멱등, 실패 재시도는 같은 행의 status 되돌리기. 대가: **클라이언트가 URL→11자 ID 추출을 담당**해야 함(Phase 2 web·extension 공용 유틸 필요) |
+| 2026-10-04 | **RLS(행) + GRANT(컬럼) 2층 권한** | RLS 는 컬럼을 제한하지 못한다. videos 소유자 UPDATE 정책을 열어두면 사용자가 자기 행의 `status`·`cost_usd` 를 덮어써 파이프라인과 비용 집계가 신뢰하는 값이 오염된다 → UPDATE 정책 제거 + `GRANT INSERT (user_id, youtube_url, youtube_id)`, `GRANT SELECT, DELETE`. 제목 수정 기능이 생기면 그때 컬럼 열거 GRANT 와 함께 추가 |
+| 2026-10-04 | **스키마 일치를 테스트로 강제** | "모델만 고치고 마이그레이션 빼먹기"는 규칙으로만 두면 반드시 한 번 샌다. metadata DDL vs `alembic upgrade --sql` 문장 비교 + 열거형↔CHECK 대조. DB 없이 돌아 CI 에 넣을 수 있음 |
 | 2026-09-18 | **예산(K)을 늘리는 방향 기각 — 병목은 예산이 아니라 선별 신호** | 기존 프레임 표 재계산(`benchmarks/budget_curve.py`): 오라클은 영상당 13장에서 포화(K=16 충분), 무작위는 82장이어야 오라클의 절반, 게이트 통과 766장 전부를 넣어도 27.9곳 < 오라클@16 28곳. 덤: 품질 게이트가 테스트 세트에서 읽을 수 있는 장소를 하나도 잃지 않음(전체 오라클 28 = 게이트 오라클 28) |
 | 2026-09-16 | **사전 등록 테스트: `text_nms` 채택 안 함, 기본값 `diverse` 유지** | 테스트 35곳: text-det 4 · full 3 · 무작위 3.9 · 오라클 28. 개발 세트 이득(8 vs 2.7) 재현 실패. 탐색: 박스 수 상위 16장의 읽힘 비율이 기저율보다 낮음(밀집 문자 프레임 = 메뉴·진열대) |
 | 2026-09-15 | **선별 후보 `text_nms` 는 사전 등록한 테스트 세트로만 채택 결정** | 개발 세트 3편은 방법 선택에 소진. 채택 규칙: 테스트 합산 text-det ≥ full + 3곳 & > 무작위 기댓값. 검출 입력은 구제본(합성에서 원본 검출이 저조도 2곳 유실) |
@@ -149,10 +153,30 @@
 
 ## Phase 1: DB & DTO (Backend)
 
-- [ ] 1-1. `Video`, `Place` SQLAlchemy 모델 (UUID PK, GeoAlchemy2 Geography)
-- [ ] 1-1. Alembic 환경 + 초기 마이그레이션 (PostGIS extension 포함)
-- [ ] 1-1. GIST 인덱스 + FK 인덱스
-- [ ] 1-1. RLS 정책 SQL 작성 (`supabase/migrations/`)
+- [x] 1-1. `Video`, `Place` SQLAlchemy 모델 — `app/models/{enums,video,place}.py`.
+      UUID PK, `TimestampMixin`(timezone-aware, `sort_order` 로 컬럼 순서 고정),
+      `StrEnum` + `String` + CHECK 제약(`VideoStatus` 6단계 / `SourceModality` 4종),
+      `Geography(POINT, 4326)`(지오코딩 실패 시 NULL 허용), places→videos FK CASCADE.
+      `app/models/__init__.py` 가 전부 재노출하고 `alembic/env.py` 가 그 패키지를 임포트
+      (base 만 임포트하면 metadata 가 비어 autogenerate 가 테이블을 못 봄)
+- [x] 1-1. Alembic 초기 마이그레이션 `20261004_1200_initial_videos_places.py` —
+      손으로 작성(autogenerate 는 PostGIS extension·geography·GeoAlchemy2 자동 인덱스를
+      제대로 못 다룸). `CREATE EXTENSION IF NOT EXISTS postgis` 포함, downgrade 에서
+      extension 은 남김. **DB 적용은 JUN 터미널에서** (`make migrate`)
+- [x] 1-1. GIST 인덱스 + FK 인덱스 — `places_geom_idx`(gist), `places_video_id_idx`,
+      `places_google_place_id_idx`, `videos_user_id_idx`, `videos_youtube_id_idx`.
+      `Geography(spatial_index=False)` 로 GeoAlchemy2 자동 인덱스를 끄고 이름을 직접 지정
+      (중복 인덱스 방지, supabase/CLAUDE.md 규약과 이름 일치)
+- [x] 1-1. RLS 정책 SQL 보강 (`supabase/migrations/20260520000001_...sql`) —
+      **행 단위 RLS + 컬럼 단위 GRANT 2층 구조로 변경.** videos 소유자 UPDATE 정책을
+      제거하고 `GRANT INSERT (user_id, youtube_url, youtube_id)` 만 허용.
+      RLS 는 "어떤 행"만 정하고 "어떤 컬럼"은 정하지 못해서, UPDATE 를 열어두면
+      클라이언트가 자기 행의 `status='completed'`·`cost_usd=0` 을 덮어쓸 수 있었음
+- [x] 1-1. 스키마 드리프트 테스트 `tests/unit/test_models_schema.py` (12개, 총 158개) —
+      모델 metadata DDL(mock engine)과 마이그레이션 offline DDL(`upgrade --sql`)을
+      문장 단위로 비교(나열 순서는 정규화). 열거형↔CHECK 제약 일치, geom 타입·SRID,
+      GIST 인덱스 1개, FK CASCADE·이름, user_id 에 DB FK 없음까지 검사.
+      마이그레이션에 컬럼을 하나 더 넣어 실제로 실패하는지 확인함
 - [ ] 1-2. Pydantic 스키마 (`VideoRead/Create`, `PlaceRead/Create`)
 - [ ] 1-2. `GET /api/v1/places` mock 라우터 (더미 JSON)
 - [ ] 1-2. `make gen:types` 파이프라인 (openapi.json → `packages/shared-types/api.ts`)

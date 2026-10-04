@@ -1,7 +1,10 @@
 from logging.config import fileConfig
 
 from alembic import context
-from app.models.base import Base
+
+# base 가 아니라 패키지를 임포트한다 — app/models/__init__.py 가 모든 모델을 로드하므로
+# Base.metadata 에 테이블이 전부 등록된다. base 만 임포트하면 빈 metadata 가 된다.
+from app.models import Base
 from app.settings import settings
 from sqlalchemy import create_engine, pool
 
