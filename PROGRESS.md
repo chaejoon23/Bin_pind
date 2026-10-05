@@ -1,6 +1,6 @@
 # Pind 진행 현황
 
-**Last updated**: 2026-10-04
+**Last updated**: 2026-10-05
 
 > 세션 시작 시 이 파일을 먼저 읽고, 종료 시 갱신할 것.
 > Phase별 체크리스트의 완료 항목은 `- [x]`로 표시하고 commit hash를 옆에 적는다.
@@ -37,6 +37,9 @@
 | 2026-09-14 | 장면 임베더는 `Embedder` 프로토콜로 교체 가능하게 | 기본 pHash+HSV(의존성 0), 옵션 DINOv3 ViT-S/16(`[vision-embed]` extra). 컷 전환은 고전 방식으로 충분하고 서버 비용이 싸다. 재방문 판정 비교 실험은 미실시 |
 | 2026-09-14 | 선명도 임계는 영상별 **상대** 기준(90퍼센타일 정규화 + 하위 N% 컷) | 절대 임계값은 촬영 기기·비트레이트에 따라 자리가 크게 달라져 재사용 불가 |
 | 2026-09-15 | **유사도 임계를 임베더별 권장값으로** (perceptual 0.88/0.95, dinov3 0.97/0.97) | 코사인 스케일이 임베더마다 다름(다른 장면 쌍 최대: pHash 0.247 vs DINOv3 0.941). pHash용 0.88을 DINOv3에 쓰면 감축률은 94.3%로 올랐지만 장소 2곳 유실. 과분할 쪽 오차를 택함 |
+| 2026-10-05 | **Phase 3 는 A안·B안 둘 다 만들어 같은 영상에서 비교** | A안(Gemini 영상 직접 입력)만 만들면 `pipeline/vision/` 전체가 실행 경로에서 빠진다. 인터페이스만 갈라놓고 동일 영상에서 장소 재현율·비용을 비교하면, 이미 만든 장소 보존률 하네스가 그대로 평가 도구가 되고 "어떤 설계가 우월한가"를 상한·비용까지 묶어 답할 수 있다 |
+| 2026-10-05 | **supabase-js 클라이언트를 지연 생성으로** | 모듈 최상단에서 환경변수를 검사해 throw 하면 `next build` 가 깨진다. 모든 페이지에 `'use client'` 를 박아도 Next 는 빌드 때 프리렌더를 한 번 돌린다. 호출 시점에 터지게 바꿔 환경변수 없이도 빌드가 통과(확인함) |
+| 2026-10-05 | **지도 마커는 Leaflet 기본 아이콘 대신 `circleMarker`** | 기본 마커는 아이콘 PNG 를 상대 경로로 찾아 번들러를 거치면 깨진다(broken-marker-icon). 벡터 마커는 이미지 자산이 없어 번들러와 무관하고, 신뢰도를 투명도로 표현할 수 있다 |
 | 2026-10-04 | **좌표 변환을 `app/schemas/geo.py` 한 모듈로** | PostGIS POINT 는 (경도, 위도), Leaflet·Google Maps 는 (위도, 경도). 서울(37.5, 127.0)처럼 두 값이 모두 유효 범위면 뒤집혀도 예외가 없고 핀만 중국 동부에 꽂힌다 → 변환 지점을 하나로 모으고 왕복 테스트로 고정. WKB 파싱은 직접 하지 않고 `shapely`(geoalchemy2 권장 조합) 추가 |
 | 2026-10-04 | **`POST /api/v1/videos/resolve` — URL→영상 ID 추출을 API 로 노출** | `UNIQUE (user_id, youtube_id)` 때문에 INSERT 하는 쪽(= 클라이언트)이 ID 를 알아야 한다. web·extension 양쪽에 regex 를 복사하면 한쪽만 고쳐지는 날이 온다(단축 URL·`/shorts/`·`/live/` 가 계속 늘어난다) → 규칙은 `schemas/video.py` 한 곳, 왕복 한 번을 감수 |
 | 2026-10-04 | **목 응답에 지오코딩 실패 장소를 섞음** | 좌표가 전부 채워진 더미는 거짓 안심을 준다. `lat`/`lng` 가 null 인 항목을 처음부터 넣어 Phase 2 지도 구현이 그 경우를 다루게 강제 |
@@ -204,12 +207,33 @@
 
 ## Phase 2: Frontend 뼈대
 
-- [ ] 2-1. `packages/shared-types/api.ts` 자동 생성 검증
-- [ ] 2-1. `lib/supabase.ts`, `lib/api.ts` wrapper (JWT 자동 첨부)
-- [ ] 2-1. Supabase Auth 흐름 (로그인/로그아웃, 세션 복원)
-- [ ] 2-2. URL 입력 폼 컴포넌트 (`apps/web/components/VideoForm` → 추후 `packages/ui`)
-- [ ] 2-2. 빈 지도 컴포넌트 (Leaflet, `dynamic` import로 SSR 회피)
-- [ ] 2-2. 더미 마커 3개 표시 → mock API 호출로 교체
+- [x] 2-1. `packages/shared-types/api.ts` 자동 생성 검증 — `lib/api.ts` 가 `components["schemas"]`
+      에서 `PlaceRead`·`VideoRead`·`VideoCreate`·`Page_PlaceRead_` 를 가져오고, 경로는
+      `paths` 타입으로 묶어 OpenAPI 에 없는 엔드포인트를 쓰면 타입 에러가 난다
+- [x] 2-1. `lib/supabase.ts`, `lib/api.ts` wrapper —
+      **supabase 클라이언트를 지연 생성으로 바꿨다.** 모듈 최상단에서 환경변수를 검사해
+      throw 하던 코드가 `next build` 를 깨뜨린다(모든 페이지가 `'use client'` 여도 Next 는
+      빌드 때 프리렌더를 한 번 돌리고, 그 시점엔 `.env.local` 이 없는 CI 일 수 있다).
+      `apiFetch` 는 FastAPI 의 `{detail}`(422 는 배열)을 사람이 읽을 메시지로 변환
+- [x] 2-1. Supabase Auth 흐름 — `hooks/useSession.ts`(getSession + `onAuthStateChange`
+      둘 다 구독: getSession 만 쓰면 다른 탭의 로그아웃·토큰 갱신을 모른다),
+      `app/(auth)/login/page.tsx`(로그인·가입·로그아웃, 이메일 확인 켜진 경우 안내,
+      환경변수 없을 때 설정 안내 화면). `ready` 플래그로 세션 복원 중 깜빡임 방지
+- [x] 2-2. URL 입력 폼 `components/VideoForm.tsx` — `POST /videos/resolve` 로 ID 를 받고
+      `videos` INSERT(클라이언트가 넣을 수 있는 3개 컬럼만). FastAPI 를 직접 부르지 않는 건
+      그 INSERT 가 Database Webhook 을 깨우는 설계이기 때문. UNIQUE 위반(23505)은
+      에러가 아니라 "이미 등록한 영상" 안내로 처리
+- [x] 2-2. 지도 `components/PlacesMap.tsx` — `dynamic(..., { ssr: false })`.
+      **기본 마커 대신 `circleMarker`** 를 쓴다(Leaflet 기본 아이콘은 PNG 를 상대 경로로
+      찾아 번들러를 거치면 깨지는 알려진 문제 — 벡터 마커는 이미지 자산이 아예 없다).
+      신뢰도를 fillOpacity 로 표현. StrictMode 재실행 대비 cleanup 에서 `map.remove()`
+- [x] 2-2. mock API 연결 `app/places/page.tsx` — TanStack Query 로 `/api/v1/places` 호출,
+      좌표 있는 장소는 지도에, **좌표 없는 장소는 숨기지 않고 목록에만** 표시하고 몇 곳이
+      빠졌는지 알린다(목 응답에 일부러 섞어둔 지오코딩 실패 사례가 여기서 쓰인다)
+- [x] 2-2. 검증 — `pnpm --filter=@pind/web typecheck/lint/build` 전부 통과.
+      환경변수 없이 `next build` 가 7페이지 프리렌더까지 성공(지연 생성 수정의 확인).
+      `@pind/ui`·`@pind/shared-types` 도 통과. **extension 은 클라우드에서 미검증**
+      (plasmo 가 네이티브 빌드 스크립트를 요구 — 맥에서 `pnpm approve-builds` 후 확인)
 
 ## Phase 3: AI 파이프라인 (Backend, 가장 큰 단계) bkit이 만든 문서 추가
 
