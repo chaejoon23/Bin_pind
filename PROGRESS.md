@@ -234,8 +234,28 @@
       환경변수 없이 `next build` 가 7페이지 프리렌더까지 성공(지연 생성 수정의 확인).
       `@pind/ui`·`@pind/shared-types` 도 통과. **extension 은 클라우드에서 미검증**
       (plasmo 가 네이티브 빌드 스크립트를 요구 — 맥에서 `pnpm approve-builds` 후 확인)
+- [ ] 2-2. (남음) 맥에서 `.env.local` 채우고 `make dev` 로 실제 화면 확인 —
+      로그인 → URL 등록 → `/places` 더미 마커 3곳. 클라우드에서는 빌드까지만 확인했다
 
 ## Phase 3: AI 파이프라인 (Backend, 가장 큰 단계) bkit이 만든 문서 추가
+
+> **Phase 3 시작 전에 확인해야 막히지 않는 것** (2026-10-05 기준)
+>
+> | 항목 | 상태 | 왜 선행인가 |
+> |---|---|---|
+> | Google Places API 결제 계정 | **미확인** | `resolve.py` 지오코딩이 여기에 걸린다. 무료 할당량이 작아 활성화 안 되어 있으면 3-2 에서 바로 멈춘다 |
+> | Gemini 영상 입력 비용 | **미측정** | `MAX_COST_PER_VIDEO_USD=0.50` 은 근거 없는 값이다. 2~3분 영상 1편으로 실측해 상한을 정하고 `cost_guard` 를 쓴다 |
+> | Supabase Database Webhook | **미설정** | 웹훅은 공개 URL 로만 간다 — localhost 에 닿지 않는다. 개발 중에는 웹훅 없이 `POST /api/v1/webhooks/video-created` 를 직접 호출해 테스트하고, 실제 연결은 Phase 5 배포 때(또는 cloudflared 터널) |
+> | yt-dlp 다운로드 | 클라우드 차단 | 유튜브가 샌드박스 allowlist 에 없다. 다운로드가 걸리는 통합 테스트는 맥에서만. 단위 테스트는 `tests/fixtures/sample.mp4` |
+>
+> **설계 분기 (2026-10-05 결정):** A안·B안을 **둘 다** 만들어 같은 영상에서 비교한다.
+> A안만 만들면 `pipeline/vision/` 전체가 실행 경로에서 빠진다. 권장 순서:
+> ① `types.py`(두 경로 공용 `PlaceCandidate` 계약) + `cost_guard.py`
+> → ② `download.py` → ③ A안 `analyze_video.py`(여기서 비용 실측)
+> → ④ B안 `frames.py` + `analyze_vision.py`(`select_keyframes` 출력을 넘김)
+> → ⑤ `resolve.py`(공용) → ⑥ `orchestrator.py` + 웹훅 → ⑦ A안 vs B안 비교 하네스
+> (⑦ 은 `benchmarks/validate_recall.py` 의 정답·오라클·손실원인 구조를 재사용)
+
 
 - [ ] 3-1. `pipeline/types.py` (PlaceCandidate, Transcript, Frame 등)
 - [ ] 3-1. `pipeline/cost_guard.py` (비용 캡)
